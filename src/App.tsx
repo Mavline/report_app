@@ -3,9 +3,7 @@
 import React, { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
-import Button from "./components/ui/button"
 import Input from "./components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select"
 import './App.css';
 
 function App() {
@@ -15,12 +13,10 @@ function App() {
   const [selectedFields, setSelectedFields] = useState<{ [key: string]: string[] }>({})
   const [keyFields, setKeyFields] = useState<{ [key: string]: string }>({})
   const [mergedData, setMergedData] = useState<any[] | null>(null)
-
-  const findHeaderRow = (data: any[][]) => {
-    return data.reduce((longest: any[], current: any[]) => 
-      current.filter(Boolean).length > longest.filter(Boolean).length ? current : longest, []
-    )
-  }
+  const [sheets, setSheets] = useState<{ [key: string]: string[] }>({})
+  const [selectedSheets, setSelectedSheets] = useState<{ [key: string]: string }>({})
+  const [mergedPreview, setMergedPreview] = useState<any[] | null>(null)
+  const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([]) // Добавляем новое состояние
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newFiles = Array.from(event.target.files || [])
@@ -31,35 +27,93 @@ function App() {
       reader.onload = (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer)
         const workbook = XLSX.read(data, { type: 'array' })
-        const sheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[sheetName]
+        const sheetNames = workbook.SheetNames
         
-        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
-        const endRow = Math.min(range.e.r, 49)
-        const tempRange = { ...range, e: { ...range.e, r: endRow } }
-        const partialJson = XLSX.utils.sheet_to_json(worksheet, { range: tempRange, header: 1 })
-
-        const headerRow = findHeaderRow(partialJson as any[][])
-        const headers = headerRow.map((header) => header?.toString() || '')
-
-        const json = XLSX.utils.sheet_to_json(worksheet, { header: headers })
-
-        setTables((prevTables) => [...prevTables, json])
-        setFields((prevFields) => ({
-          ...prevFields,
-          [file.name]: headers,
+        setSheets(prevSheets => ({
+          ...prevSheets,
+          [file.name]: sheetNames
         }))
-        setSelectedFields((prevSelected) => ({
-          ...prevSelected,
-          [file.name]: [],
-        }))
-        setKeyFields((prevKeys) => ({
-          ...prevKeys,
-          [file.name]: '',
-        }))
+
+        if (sheetNames.length === 1) {
+          handleSheetSelection(file.name, sheetNames[0])
+        }
       }
       reader.readAsArrayBuffer(file)
     })
+  }
+
+  const handleSheetSelection = (fileName: string, sheetName: string) => {
+    setSelectedSheets(prevSelected => ({
+      ...prevSelected,
+      [fileName]: sheetName
+    }))
+
+    const file = files.find(f => f.name === fileName)
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target?.result as ArrayBuffer)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const worksheet = workbook.Sheets[sheetName]
+      
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+      const endRow = Math.min(range.e.r, 49)
+      const tempRange = { ...range, e: { ...range.e, r: endRow } }
+      const partialJson = XLSX.utils.sheet_to_json(worksheet, { range: tempRange, header: 1 }) as Array<Array<any>>
+
+      // Функция для проверки, содержит ли строка буквы
+      const containsLetters = (str: string) => /[a-zA-Z]/.test(str)
+
+      // Функция для подсчета значимых ячеек в строке
+      const countSignificantCells = (row: Array<any>) => 
+        row.filter(cell => 
+          cell && 
+          typeof cell === 'string' && 
+          containsLetters(cell)
+        ).length
+
+      // Находим строку с наибольшим количеством значимых ячеек
+      let headerRowIndex = 0
+      let maxSignificantCells = 0
+
+      partialJson.forEach((row, index) => {
+        const significantCells = countSignificantCells(row)
+        if (significantCells > maxSignificantCells) {
+          maxSignificantCells = significantCells
+          headerRowIndex = index
+        }
+      })
+
+      // Используем найденную строку как заголовки
+      const headerRow = partialJson[headerRowIndex]
+      const headers: string[] = headerRow.map(cell => String(cell || '').trim())
+
+      // Получаем все данные после заголовков
+      const fullRange = { 
+        ...range, 
+        s: { ...range.s, r: headerRowIndex + 1 }
+      }
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+        range: fullRange,
+        header: headers
+      })
+
+      setTables(prevTables => [...prevTables, jsonData])
+      setFields(prevFields => ({
+        ...prevFields,
+        [fileName]: headers
+      }))
+      setSelectedFields(prevSelected => ({
+        ...prevSelected,
+        [fileName]: [],
+      }))
+      setKeyFields(prevKeys => ({
+        ...prevKeys,
+        [fileName]: '',
+      }))
+    }
+    reader.readAsArrayBuffer(file)
   }
 
   const handleFieldSelection = (fileName: string, field: string) => {
@@ -83,7 +137,7 @@ function App() {
 
   const mergeTables = () => {
     if (tables.length < 2) {
-      alert('Please upload at least two tables to merge.')
+      alert('Please upload both tables to merge.')
       return
     }
 
@@ -93,29 +147,57 @@ function App() {
       return
     }
 
+    // Сохраняем порядок полей в том порядке, в котором они были выбраны
+    const orderedFields = Object.entries(selectedFields).reduce((acc: string[], [_, fields]) => {
+      fields.forEach(field => {
+        if (!acc.includes(field)) acc.push(field)
+      })
+      return acc
+    }, [])
+
+    setSelectedFieldsOrder(orderedFields) // Сохраняем порядок полей
+
     let merged = tables[0]
     
     for (let i = 1; i < tables.length; i++) {
-      const currentKeyField = keyFields[files[i].name]
-      const previousKeyField = keyFields[files[i - 1].name]
+      const currentFile = files[i]
+      const previousFile = files[i - 1]
+      
+      if (!currentFile || !previousFile) {
+        alert('Error: Some files are missing. Please upload all required files.')
+        return
+      }
 
+      const currentKeyField = keyFields[currentFile.name]
+      const previousKeyField = keyFields[previousFile.name]
+
+      if (!currentKeyField || !previousKeyField) {
+        alert('Error: Key fields are not selected for all files. Please select key fields for all files.')
+        return
+      }
+
+      // eslint-disable-next-line no-loop-func
       merged = merged.flatMap((row: any) => {
         const matchingRows = tables[i].filter((r: any) => r[currentKeyField] === row[previousKeyField])
         if (matchingRows.length > 0) {
-          return matchingRows.map((match: any) => ({ ...row, ...match }))
+          return matchingRows.map((match: any) => {
+            const mergedRow: any = {}
+            orderedFields.forEach(field => {
+              if (match[field] !== undefined) {
+                mergedRow[field] = match[field]
+              } else if (row[field] !== undefined) {
+                mergedRow[field] = row[field]
+              }
+            })
+            return mergedRow
+          })
         }
-        return [row]
+        return []
       })
     }
 
-    const allSelectedFields = new Set(Object.values(selectedFields).flat())
-    merged = merged.map((row: any) =>
-      Object.fromEntries(
-        Object.entries(row).filter(([key]) => allSelectedFields.has(key))
-      )
-    )
-
     setMergedData(merged)
+    setMergedPreview(merged.slice(0, 10))
   }
 
   const downloadMergedFile = () => {
@@ -143,12 +225,39 @@ function App() {
                 type="file" 
                 accept=".xlsx,.xls" 
                 onChange={handleFileUpload} 
-                className="mb-4" 
+                className="mb-4 w-full p-2 border border-gray-300 rounded"
               />
               {!files[index] && (
                 <p className="text-gray-500 mb-4">No file selected</p>
               )}
-              {files[index] && (
+              {files[index] && sheets[files[index].name] && sheets[files[index].name].length > 0 && (
+                <div className="mb-4" style={{ width: '100%' }}>
+                  <select
+                    value={selectedSheets[files[index].name] || ''}
+                    onChange={(e) => handleSheetSelection(files[index].name, e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      border: '1px solid #ccc',
+                      borderRadius: '4px',
+                      backgroundColor: 'white',
+                      color: 'black',
+                      fontSize: '14px'
+                    }}
+                  >
+                    <option value="">Select a sheet</option>
+                    {sheets[files[index].name].map((sheet) => (
+                      <option key={sheet} value={sheet}>{sheet}</option>
+                    ))}
+                  </select>
+                  {selectedSheets[files[index].name] && (
+                    <p style={{ marginTop: '8px', fontSize: '14px', color: 'black' }}>
+                      Selected sheet: {selectedSheets[files[index].name]}
+                    </p>
+                  )}
+                </div>
+              )}
+              {files[index] && selectedSheets[files[index].name] && (
                 <div className="file-content">
                   <div className="fields-column">
                     <h3 className="font-medium mb-2">Fields:</h3>
@@ -174,18 +283,24 @@ function App() {
                   </div>
                   <div className="key-column">
                     <h3 className="font-medium mb-2">Key field:</h3>
-                    <Select onValueChange={(value: string) => handleKeyFieldSelection(files[index].name, value)}>
-                      <SelectTrigger className="select-trigger">
-                        <SelectValue placeholder="Select a key field" />
-                      </SelectTrigger>
-                      <SelectContent className="select-content">
-                        {fields[files[index].name]?.map((field) => (
-                          <SelectItem key={field} value={field}>
-                            {field}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={keyFields[files[index].name] || ''}
+                      onChange={(e) => handleKeyFieldSelection(files[index].name, e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        backgroundColor: 'white',
+                        color: 'black',
+                        fontSize: '14px'
+                      }}
+                    >
+                      <option value="">Select a key field</option>
+                      {fields[files[index].name]?.map((field) => (
+                        <option key={field} value={field}>{field}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}
@@ -193,14 +308,85 @@ function App() {
           ))}
         </div>
         <div className="button-container">
-          <Button onClick={mergeTables} disabled={files.length < 2} className="button">
+          <button 
+            onClick={mergeTables} 
+            disabled={files.length < 2} 
+            style={{
+              padding: '8px 16px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              backgroundColor: 'white',
+              color: 'black',
+              fontSize: '14px',
+              cursor: 'pointer',
+              marginRight: '10px'
+            }}
+          >
             Merge
-          </Button>
-          <Button onClick={downloadMergedFile} disabled={!mergedData} className="button">
+          </button>
+          <button 
+            onClick={downloadMergedFile} 
+            disabled={!mergedData}
+            style={{
+              padding: '8px 16px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              backgroundColor: 'white',
+              color: 'black',
+              fontSize: '14px',
+              cursor: 'pointer'
+            }}
+          >
             Download
-          </Button>
+          </button>
         </div>
       </header>
+      
+      {mergedPreview && mergedPreview.length > 0 && (
+        <div className="merged-preview" style={{ margin: '20px 0' }}>
+          <h2 className="text-xl font-semibold mb-4">Merged Data Preview</h2>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ 
+              width: '100%', 
+              borderCollapse: 'collapse',
+              fontSize: '14px'
+            }}>
+              <thead>
+                <tr>
+                  {selectedFieldsOrder.map((field: string) => (
+                    <th key={field} style={{ 
+                      padding: '12px 8px',
+                      borderBottom: '2px solid #ddd',
+                      textAlign: 'left'
+                    }}>
+                      {field}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {mergedPreview.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {selectedFieldsOrder.map((field: string, cellIndex: number) => (
+                      <td key={`${rowIndex}-${cellIndex}`} style={{ 
+                        padding: '8px',
+                        borderBottom: '1px solid #ddd'
+                      }}>
+                        {row[field] !== undefined ? String(row[field]) : ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {mergedData && mergedData.length > 10 && (
+            <p style={{ marginTop: '10px', color: '#666' }}>
+              Showing first 10 of {mergedData.length} rows
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
