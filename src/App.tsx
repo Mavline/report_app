@@ -421,7 +421,7 @@ function App() {
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
     const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     saveAs(data, 'merged_tables.xlsx')
-  
+  }
 
   return (
     <div className="App">
@@ -511,31 +511,27 @@ function App() {
                       }}
                     >
                       <option value="">Select a key field</option>
-
                       {fields[files[index].name]?.map((field) => (
-                        <div key={field} className="field-item">
+                        <option key={field} value={field}>
                           {field}
-                        </div>
+                        </option>
                       ))}
-                    </div>
-                    <div className="checkbox-column">
-                      <h3 className="font-medium mb-2">Select:</h3>
-                      {fields[files[index].name]?.map((field) => (
-                        <div key={field} className="checkbox-container">
-                          <input
-                            type="checkbox"
-                            id={`field-${files[index].name}-${field}`}
-                            className="checkbox"
-                            checked={selectedFields[
-                              files[index].name
-                            ]?.includes(field)}
-                            onChange={() =>
-                              handleFieldSelection(files[index].name, field)
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
+                    </select>
+                  </div>
+                  <div className="checkbox-column">
+                    <h3 className="font-medium mb-2">Select:</h3>
+                    {fields[files[index].name]?.map((field) => (
+                      <div key={field} className="checkbox-container">
+                        <input
+                          type="checkbox"
+                          id={`field-${files[index].name}-${field}`}
+                          className="checkbox"
+                          checked={selectedFields[files[index].name]?.includes(field)}
+                          onChange={() => handleFieldSelection(files[index].name, field)}
+                        />
+                      </div>
+                    ))}
+                  </div>
                     <div className="key-column">
                       <h3 className="font-medium mb-2">Key field:</h3>
                       <select
@@ -664,3 +660,4 @@ function App() {
 }
 
 export default App;
+
