@@ -498,16 +498,21 @@ function App() {
                   <div className="key-column">
                     <h3 className="font-medium mb-2">Key field:</h3>
                     <select
-                      value={keyFields[files[index].name] || ''}
-                      onChange={(e) => handleKeyFieldSelection(files[index].name, e.target.value)}
+                      value={keyFields[files[index].name] || ""}
+                      onChange={(e) =>
+                        handleKeyFieldSelection(
+                          files[index].name,
+                          e.target.value,
+                        )
+                      }
                       style={{
-                        width: '100%',
-                        padding: '8px',
-                        border: '1px solid #ccc',
-                        borderRadius: '4px',
-                        backgroundColor: 'white',
-                        color: 'black',
-                        fontSize: '14px'
+                        width: "100%",
+                        padding: "8px",
+                        border: "1px solid #ccc",
+                        borderRadius: "4px",
+                        backgroundColor: "white",
+                        color: "black",
+                        fontSize: "14px",
                       }}
                     >
                       <option value="">Select a key field</option>
@@ -518,50 +523,8 @@ function App() {
                       ))}
                     </select>
                   </div>
-                  <div className="checkbox-column">
-                    <h3 className="font-medium mb-2">Select:</h3>
-                    {fields[files[index].name]?.map((field) => (
-                      <div key={field} className="checkbox-container">
-                        <input
-                          type="checkbox"
-                          id={`field-${files[index].name}-${field}`}
-                          className="checkbox"
-                          checked={selectedFields[files[index].name]?.includes(field)}
-                          onChange={() => handleFieldSelection(files[index].name, field)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                    <div className="key-column">
-                      <h3 className="font-medium mb-2">Key field:</h3>
-                      <select
-                        value={keyFields[files[index].name] || ""}
-                        onChange={(e) =>
-                          handleKeyFieldSelection(
-                            files[index].name,
-                            e.target.value,
-                          )
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "8px",
-                          border: "1px solid #ccc",
-                          borderRadius: "4px",
-                          backgroundColor: "white",
-                          color: "black",
-                          fontSize: "14px",
-                        }}
-                      >
-                        <option value="">Select a key field</option>
-                        {fields[files[index].name]?.map((field) => (
-                          <option key={field} value={field}>
-                            {field}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
+                </div>
+              )}
             </div>
           ))}
         </div>
