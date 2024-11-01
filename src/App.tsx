@@ -322,7 +322,7 @@ function App() {
           row[header] = '';
         });
 
-        // Если есть данные о группировке для данной строки
+        // Если есть дан��ые о группировке для данной строки
         if (groupData) {
           const level = groupData.level;
 
@@ -421,6 +421,7 @@ function App() {
         console.warn('No Level columns found in headers')
         setMergedData(merged)
         setMergedPreview(merged.slice(0, 10))
+        setSelectedFieldsOrder(allHeaders)
         return
       }
 
@@ -440,30 +441,27 @@ function App() {
 
       console.log('Processed merged data:', newMergedData)
       
-      // Обновляем состояние с задержкой для отладки
-      setTimeout(() => {
-        setMergedData(newMergedData)
-        setMergedPreview(newMergedData.slice(0, 10))
-        console.log('State updated with new data')
-      }, 0)
-
-      // Проверяем обновление через 100мс
-      setTimeout(() => {
-        console.log('Current mergedData state:', mergedData)
-        console.log('Current preview state:', mergedPreview)
-      }, 100)
+      // Обновляем заголовки, добавляя LevelValue после последней Level_ колонки
+      const newHeaders = [...allHeaders]
+      newHeaders.splice(lastLevelIndex + 1, 0, 'LevelValue')
+      
+      // Обновляем все состояния одновременно
+      setMergedData(newMergedData)
+      setMergedPreview(newMergedData.slice(0, 10))
+      setSelectedFieldsOrder(newHeaders)
+      
+      console.log('Final headers:', newHeaders)
+      console.log('Final merged data:', newMergedData)
     } else {
       console.log('No grouped file found')
       setMergedData(merged)
       setMergedPreview(merged.slice(0, 10))
+      setSelectedFieldsOrder(allHeaders)
     }
 
-    setMergedPreview(merged.slice(0, 10));
-    setSelectedFieldsOrder(allHeaders);
-    console.log('Merged data preview:', merged.slice(0, 10));
-    console.log('All headers:', allHeaders);
-    console.log('Generated headers:', allHeaders);
-    console.log('Grouping structure:', groupingStructure);
+    // Удаляем дублирующие вызовы
+    // setMergedPreview(merged.slice(0, 10));
+    // setSelectedFieldsOrder(allHeaders);
   }
 
   const downloadMergedFile = () => {
