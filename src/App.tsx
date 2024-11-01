@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
 import JSZip from 'jszip';
@@ -17,6 +17,10 @@ interface GroupInfo {
   parent?: number;
 }
 
+// В начале файла добавим проверку окружения
+const isProduction = process.env.NODE_ENV === 'production';
+console.log('Environment:', process.env.NODE_ENV);
+
 function App() {
 
   const [files, setFiles] = useState<File[]>([])
@@ -31,6 +35,17 @@ function App() {
   const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([])
   const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({})
   const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({})
+
+  // Добавим эффект для отслеживания жизненного цикла
+  useEffect(() => {
+    console.log('Component lifecycle:', {
+      mergedData: !!mergedData,
+      selectedFieldsOrder: !!selectedFieldsOrder,
+      files: files.length,
+      tables: tables.length,
+      isProduction
+    });
+  }, [mergedData, selectedFieldsOrder, files, tables]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log("File upload started");
@@ -235,6 +250,9 @@ function App() {
   };
 
   const mergeTables = () => {
+    console.log('Starting merge process...')
+    console.log('Initial tables:', tables)
+    
     if (tables.length < 2) {
       alert("Please upload both tables to merge.");
       return;
@@ -385,34 +403,60 @@ function App() {
       )
       .filter((row: Record<string, any> | null) => row !== null);
 
-    console.log('Starting merge process...')
     console.log('Initial merged data:', merged)
 
-    // Получаем индекс последней Level колонки
-    const headers = Object.keys(merged[0])
-    const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
-      return header.startsWith('Level_') ? index : maxIndex
-    }, -1)
+    if (groupedFile) {
+      // Получаем индекс последней Level колонки
+      const headers = Object.keys(merged[0] || {})
+      console.log('Headers before processing:', headers)
+      
+      const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
+        return header.startsWith('Level_') ? index : maxIndex
+      }, -1)
+      
+      console.log('Last level index:', lastLevelIndex)
 
-    // Создаем новые данные с вставленной колонкой в нужном месте
-    const newMergedData = merged.map((row: { [key: string]: any }) => {
-      const entries = Object.entries(row)
-      const levelValue = Object.entries(row)
-        .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
+      // Проверяем структуру данных перед обработкой
+      if (lastLevelIndex === -1) {
+        console.warn('No Level columns found in headers')
+        setMergedData(merged)
+        setMergedPreview(merged.slice(0, 10))
+        return
+      }
+
+      // Создаем новые данные с вставленной колонкой в нужном месте
+      const newMergedData = merged.map((row: { [key: string]: any }) => {
+        const entries = Object.entries(row)
+        console.log('Processing row:', row)
         
-      entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
-      return Object.fromEntries(entries)
-    })
+        const levelValue = Object.entries(row)
+          .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
+        
+        console.log('Found level value:', levelValue)
+        
+        entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
+        return Object.fromEntries(entries)
+      })
 
-    setMergedData(newMergedData)
+      console.log('Processed merged data:', newMergedData)
+      
+      // Обновляем состояние с задержкой для отладки
+      setTimeout(() => {
+        setMergedData(newMergedData)
+        setMergedPreview(newMergedData.slice(0, 10))
+        console.log('State updated with new data')
+      }, 0)
 
-    console.log('Processed merged data:', newMergedData)
-    console.log('State updated with new data')
-
-    // Возможно, нужно принудительно вызвать обновление
-    setTimeout(() => {
-      console.log('Current mergedData state:', mergedData)
-    }, 100)
+      // Проверяем обновление через 100мс
+      setTimeout(() => {
+        console.log('Current mergedData state:', mergedData)
+        console.log('Current preview state:', mergedPreview)
+      }, 100)
+    } else {
+      console.log('No grouped file found')
+      setMergedData(merged)
+      setMergedPreview(merged.slice(0, 10))
+    }
 
     setMergedPreview(merged.slice(0, 10));
     setSelectedFieldsOrder(allHeaders);
@@ -420,26 +464,6 @@ function App() {
     console.log('All headers:', allHeaders);
     console.log('Generated headers:', allHeaders);
     console.log('Grouping structure:', groupingStructure);
-
-    if (groupedFile) {
-      // Получаем индекс последней Level колонки
-      const headers = Object.keys(merged[0])
-      const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
-        return header.startsWith('Level_') ? index : maxIndex
-      }, -1)
-
-      // Создаем новые данные с вставленной колонкой в нужном месте
-      const newMergedData = merged.map((row: { [key: string]: any }) => {
-        const entries = Object.entries(row)
-        const levelValue = Object.entries(row)
-          .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
-          
-        entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
-        return Object.fromEntries(entries)
-      })
-
-      setMergedData(newMergedData)
-    }
   }
 
   const downloadMergedFile = () => {
