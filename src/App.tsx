@@ -236,10 +236,7 @@ function App() {
 
   const mergeTables = () => {
     if (tables.length < 2) {
-
       alert("Please upload both tables to merge.");
-
-
       return;
     }
 
@@ -395,6 +392,48 @@ function App() {
     console.log('All headers:', allHeaders);
     console.log('Generated headers:', allHeaders);
     console.log('Grouping structure:', groupingStructure);
+
+    if (groupedFile) {
+      const groupInfo = groupingStructure[groupedFile.name] as { [key: string]: GroupInfo }
+      
+      // Находим все колонки с уровнями в данных
+      const levelColumns = Object.keys(merged[0])
+        .filter(key => key.startsWith('Level_'))
+        .sort((a, b) => {
+          const numA = parseInt(a.split('_')[1])
+          const numB = parseInt(b.split('_')[1])
+          return numA - numB
+        })
+
+      const mergedDataWithLevel = merged.map((row: { [key: string]: any }) => {
+        const newRow: { [key: string]: any } = {}
+        
+        // Копируем все Level колонки
+        levelColumns.forEach(levelCol => {
+          newRow[levelCol] = row[levelCol]
+        })
+        
+        // Добавляем новую колонку Level со значением из соответствующего уровня
+        newRow['Level'] = ''
+        for (const levelCol of levelColumns) {
+          if (row[levelCol]) {
+            newRow['Level'] = row[levelCol]
+            break
+          }
+        }
+        
+        // Добавляем все остальные колонки
+        Object.keys(row).forEach(key => {
+          if (!key.startsWith('Level_')) {
+            newRow[key] = row[key]
+          }
+        })
+        
+        return newRow
+      })
+      
+      setMergedData(mergedDataWithLevel)
+    }
   }
 
   const downloadMergedFile = () => {
