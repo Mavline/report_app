@@ -194,7 +194,7 @@ function App() {
       // Получаем уровень группировки из XML
       const outlineLevel = parseInt(row['@_outlineLevel'] || '0');
       
-      // Сохраняем информацию о группировке со скорректированным индексом
+      // Сохраняем информацию о группировке со скорректированны индексом
       const adjustedIndex = rowIndex - headerOffset;
       groupingInfo[adjustedIndex.toString()] = {
         level: outlineLevel,
@@ -385,7 +385,35 @@ function App() {
       )
       .filter((row: Record<string, any> | null) => row !== null);
 
-    setMergedData(merged);
+    console.log('Starting merge process...')
+    console.log('Initial merged data:', merged)
+
+    // Получаем индекс последней Level колонки
+    const headers = Object.keys(merged[0])
+    const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
+      return header.startsWith('Level_') ? index : maxIndex
+    }, -1)
+
+    // Создаем новые данные с вставленной колонкой в нужном месте
+    const newMergedData = merged.map((row: { [key: string]: any }) => {
+      const entries = Object.entries(row)
+      const levelValue = Object.entries(row)
+        .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
+        
+      entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
+      return Object.fromEntries(entries)
+    })
+
+    setMergedData(newMergedData)
+
+    console.log('Processed merged data:', newMergedData)
+    console.log('State updated with new data')
+
+    // Возможно, нужно принудительно вызвать обновление
+    setTimeout(() => {
+      console.log('Current mergedData state:', mergedData)
+    }, 100)
+
     setMergedPreview(merged.slice(0, 10));
     setSelectedFieldsOrder(allHeaders);
     console.log('Merged data preview:', merged.slice(0, 10));
@@ -394,45 +422,23 @@ function App() {
     console.log('Grouping structure:', groupingStructure);
 
     if (groupedFile) {
-      const groupInfo = groupingStructure[groupedFile.name] as { [key: string]: GroupInfo }
-      
-      // Находим все колонки с уровнями в данных
-      const levelColumns = Object.keys(merged[0])
-        .filter(key => key.startsWith('Level_'))
-        .sort((a, b) => {
-          const numA = parseInt(a.split('_')[1])
-          const numB = parseInt(b.split('_')[1])
-          return numA - numB
-        })
+      // Получаем индекс последней Level колонки
+      const headers = Object.keys(merged[0])
+      const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
+        return header.startsWith('Level_') ? index : maxIndex
+      }, -1)
 
-      const mergedDataWithLevel = merged.map((row: { [key: string]: any }) => {
-        const newRow: { [key: string]: any } = {}
-        
-        // Копируем все Level колонки
-        levelColumns.forEach(levelCol => {
-          newRow[levelCol] = row[levelCol]
-        })
-        
-        // Добавляем новую колонку Level со значением из соответствующего уровня
-        newRow['Level'] = ''
-        for (const levelCol of levelColumns) {
-          if (row[levelCol]) {
-            newRow['Level'] = row[levelCol]
-            break
-          }
-        }
-        
-        // Добавляем все остальные колонки
-        Object.keys(row).forEach(key => {
-          if (!key.startsWith('Level_')) {
-            newRow[key] = row[key]
-          }
-        })
-        
-        return newRow
+      // Создаем новые данные с вставленной колонкой в нужном месте
+      const newMergedData = merged.map((row: { [key: string]: any }) => {
+        const entries = Object.entries(row)
+        const levelValue = Object.entries(row)
+          .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
+          
+        entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
+        return Object.fromEntries(entries)
       })
-      
-      setMergedData(mergedDataWithLevel)
+
+      setMergedData(newMergedData)
     }
   }
 
