@@ -95,7 +95,7 @@ function App() {
       console.log(`Trying to access sheet XML at path: ${sheetXmlPath}`);
       const sheetXml = await zipContents.file(sheetXmlPath)?.async('string')
 
-      // Обработка XML и поиск заголовка
+      // Обработка XML и поиск заоловка
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const worksheet = workbook.Sheets[sheetName]
       
@@ -169,7 +169,7 @@ function App() {
         [file.name]: sheetName
       }))
 
-      // Обработка XML для группировки
+      // Обработка XML ля группировки
       if (sheetXml) {
         const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
         const parsedXml = parser.parse(sheetXml);
@@ -250,8 +250,7 @@ function App() {
   };
 
   const mergeTables = () => {
-    console.log('Starting merge process...')
-    console.log('Initial tables:', tables)
+    console.log('Starting merge process...');
     
     if (tables.length < 2) {
       alert("Please upload both tables to merge.");
@@ -260,75 +259,43 @@ function App() {
 
     const keyFieldSet = new Set(Object.values(keyFields));
     if (keyFieldSet.size === 0) {
-      alert("Please select a key field for merging.");
       alert("Please select at least one key field for merging.");
       return;
     }
 
+    // Получаем информацию о группировке
     const groupedFile = files[0];
     const groupInfo = groupingStructure[groupedFile.name];
-    
-    // Определяем максимальный уровень группировки
     const maxLevel = groupInfo ? Math.max(...Object.values(groupInfo).map(info => info.level)) : 0;
-    
-    // Определяем headerRowIndex для первой таблицы
-    const workbook = XLSX.read(tables[0], { type: 'array' });
-    const worksheet = workbook.Sheets[selectedSheets[groupedFile.name]];
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    const endRow = Math.min(range.e.r, 49);
-    const tempRange = { ...range, e: { ...range.e, r: endRow } };
-    const partialJson = XLSX.utils.sheet_to_json(worksheet, { range: tempRange, header: 1 }) as Array<Array<any>>;
 
-    // Находим строку с наибольшим кличеством значимых ячеек
-    let headerRowIndex = 0;
-    let maxSignificantCells = 0;
-
-    const containsLetters = (str: string) => /[a-zA-Z]/.test(str);
-    const countSignificantCells = (row: Array<any>) => 
-      row.filter(cell => cell && typeof cell === 'string' && containsLetters(cell)).length;
-
-    partialJson.forEach((row, index) => {
-      const significantCells = countSignificantCells(row);
-      if (significantCells > maxSignificantCells) {
-        maxSignificantCells = significantCells;
-        headerRowIndex = index;
-      }
-    });
-
-    // Создаем заголовки для каждого уровня группировки
+    // Создаем заголовки для уровней группировки
     const groupHeaders = Array.from({ length: maxLevel + 1 }, (_, i) => `Level_${i + 1}`);
-    
-    // Создаем загловки данных
+
+    // Создаем заголовки данных
     const dataHeaders = files.flatMap(file => 
       selectedFields[file.name].map(field => fields[file.name][fields[file.name].indexOf(field)])
     );
-    
-    // Сначала группировка, потом данные
-    const allHeaders = [...groupHeaders, ...dataHeaders];
 
-    // Выносим createBaseRow на уровень выше
+    // Все заголовки, включая LevelValue
+    const allHeaders = [...groupHeaders, 'LevelValue', ...dataHeaders];
+
+    // Функция для создания базовой строки с учетом группировки
     const createBaseRow = (rowIndex: number) => {
       const row: Record<string, any> = {};
 
       if (groupInfo) {
-        // Вычитаем headerRowIndex и добавляем:
-        // +1 для учета заголовка исходной таблицы
-        // +1 для учета заголовка новой таблицы
-        const xmlRowIndex = rowIndex - (headerRowIndex - 2);
-        const groupData = groupInfo[xmlRowIndex];
-
         // Инициализируем все уровни группировки пустыми строками
         groupHeaders.forEach((header) => {
           row[header] = '';
         });
 
-        // Если есть дан��ые о группировке для данной строки
+        // Получаем информацию о группировке для текущей строки
+        const groupData = groupInfo[rowIndex + 1]; // +1 для учета индексации
         if (groupData) {
           const level = groupData.level;
-
           if (level >= 0 && level < groupHeaders.length) {
-            // Устанавливаем значение в соответствующем столбце уровня группировки
             row[groupHeaders[level]] = groupData.level + 1;
+            row['LevelValue'] = groupData.level + 1; // Добавляем LevelValue
           }
         }
       }
@@ -336,7 +303,7 @@ function App() {
       return row;
     };
 
-
+    // Функция для создания строк с совпадениями без удаления повторов
     const createRowsWithMatches = (
       firstTableRow: Record<string, any>, 
       rowIndex: number
@@ -359,110 +326,67 @@ function App() {
         return [baseRow];
       }
 
-      // Отслеживаем последние значения
-      const lastValues: Record<string, any> = {};
-      
-      // Создаем строи для каждого совпадения
+      // Создаем строки для каждого совпадения без удаления повторов
       return matchingRows.map((matchingRow: Record<string, any>, matchIndex: number) => {
         const baseRow = createBaseRow(rowIndex);
-        let hasNewValue = false;
-        
-        // Добавляем данные из первой таблицы только в первой строке
+
+        // Добавляем данные из первой таблицы только в первую строку
         if (matchIndex === 0) {
           selectedFields[files[0].name].forEach(field => {
             const originalField = fields[files[0].name][fields[files[0].name].indexOf(field)];
-            const value = firstTableRow[field];
-            baseRow[originalField] = value;
-            lastValues[originalField] = value;
-            hasNewValue = true;
+            baseRow[originalField] = firstTableRow[field];
+          });
+        } else {
+          // Оставляем поля из первой таблицы пустыми в последующих строках
+          selectedFields[files[0].name].forEach(field => {
+            const originalField = fields[files[0].name][fields[files[0].name].indexOf(field)];
+            baseRow[originalField] = '';
           });
         }
 
-        // Добавляем данные из второй таблицы
+        // Добавляем данные из второй таблицы без удаления повторов
         selectedFields[files[1].name].forEach(field => {
           const originalField = fields[files[1].name][fields[files[1].name].indexOf(field)];
-          const value = matchingRow[field];
-          
-          if (value !== lastValues[originalField]) {
-            baseRow[originalField] = value;
-            lastValues[originalField] = value;
-            hasNewValue = true;
-          } else {
-            baseRow[originalField] = '';
-          }
+          baseRow[originalField] = matchingRow[field];
         });
 
-        return hasNewValue ? baseRow : null;
-      }).filter((row: Record<string, any> | null) => row !== null);
+        return baseRow;
+      });
     };
 
-    // Создаем merged data
+    // Создаем объединенные данные
     const merged = tables[0]
       .flatMap((row: Record<string, any>, index: number) => 
         createRowsWithMatches(row, index)
-      )
-      .filter((row: Record<string, any> | null) => row !== null);
+      );
 
-    console.log('Initial merged data:', merged)
+    // Обрабатываем LevelValue с использованием selectedFieldsOrder
+    const processedData = merged.map((row: { [key: string]: any }) => {
+      // Находим индекс 'LevelValue' в selectedFieldsOrder
+      const levelValueIndex = allHeaders.indexOf('LevelValue');
 
-    if (groupedFile) {
-      // Получаем индекс последней Level колонки
-      const headers = Object.keys(merged[0] || {})
-      console.log('Headers before processing:', headers)
-      
-      const lastLevelIndex = headers.reduce((maxIndex, header, index) => {
-        return header.startsWith('Level_') ? index : maxIndex
-      }, -1)
-      
-      console.log('Last level index:', lastLevelIndex)
-
-      // Проверяем структуру данных перед обработкой
-      if (lastLevelIndex === -1) {
-        console.warn('No Level columns found in headers')
-        setMergedData(merged)
-        setMergedPreview(merged.slice(0, 10))
-        setSelectedFieldsOrder(allHeaders)
-        return
+      if (levelValueIndex !== -1) {
+        // Получаем название следующего поля
+        const nextField = allHeaders[levelValueIndex + 1];
+        if (nextField) {
+          const nextFieldValue = row[nextField];
+          if (!nextFieldValue || nextFieldValue === '') {
+            row['LevelValue'] = '';
+          }
+        }
       }
 
-      // Создаем новые данные с вставленной колонкой в нужном месте
-      const newMergedData = merged.map((row: { [key: string]: any }) => {
-        const entries = Object.entries(row)
-        console.log('Processing row:', row)
-        
-        const levelValue = Object.entries(row)
-          .find(([key, value]) => key.startsWith('Level_') && value)?.[1] || ''
-        
-        console.log('Found level value:', levelValue)
-        
-        entries.splice(lastLevelIndex + 1, 0, ['LevelValue', levelValue])
-        return Object.fromEntries(entries)
-      })
+      return row;
+    });
 
-      console.log('Processed merged data:', newMergedData)
-      
-      // Обновляем заголовки, добавляя LevelValue после последней Level_ колонки
-      const newHeaders = [...allHeaders]
-      newHeaders.splice(lastLevelIndex + 1, 0, 'LevelValue')
-      
-      // Обновляем все состояния одновременно
-      setMergedData(newMergedData)
-      setMergedPreview(newMergedData.slice(0, 10))
-      setSelectedFieldsOrder(newHeaders)
-      
-      console.log('Final headers:', newHeaders)
-      console.log('Final merged data:', newMergedData)
-    } else {
-      console.log('No grouped file found')
-      setMergedData(merged)
-      setMergedPreview(merged.slice(0, 10))
-      setSelectedFieldsOrder(allHeaders)
-    }
+    // Обновляем состояния с обработанными данными
+    setMergedData(processedData);
+    setMergedPreview(processedData.slice(0, 10));
+    setSelectedFieldsOrder(allHeaders);
 
-    // Удаляем дублирующие вызовы
-    // setMergedPreview(merged.slice(0, 10));
-    // setSelectedFieldsOrder(allHeaders);
-  }
+    console.log('Final headers:', allHeaders);
+    console.log('Final merged data:', processedData);
+  };
 
   const downloadMergedFile = () => {
     if (!mergedData || mergedData.length === 0) {
