@@ -169,7 +169,7 @@ function App() {
         [file.name]: sheetName
       }))
 
-      // Обработка XML ля группировки
+      // Обработка XML л группировки
       if (sheetXml) {
         const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
         const parsedXml = parser.parse(sheetXml);
@@ -209,7 +209,7 @@ function App() {
       // Получаем уровень группировки из XML
       const outlineLevel = parseInt(row['@_outlineLevel'] || '0');
       
-      // Сохраняем информацию о группировке со скорректированны индексом
+      // Схраняем информацию о группировке со скорректированны индексом
       const adjustedIndex = rowIndex - headerOffset;
       groupingInfo[adjustedIndex.toString()] = {
         level: outlineLevel,
@@ -271,12 +271,14 @@ function App() {
     // Создаем заголовки для уровней группировки
     const groupHeaders = Array.from({ length: maxLevel + 1 }, (_, i) => `Level_${i + 1}`);
 
-    // Создаем заголовки данных
-    const dataHeaders = files.flatMap(file => 
-      selectedFields[file.name].map(field => fields[file.name][fields[file.name].indexOf(field)])
-    );
+    // Создаем заголовки данных, сохраняя порядок полей из исходных таблиц
+    const dataHeaders: string[] = [];
+    files.forEach(file => {
+      const fileFields = fields[file.name].filter(field => selectedFields[file.name].includes(field));
+      dataHeaders.push(...fileFields);
+    });
 
-    // Все заголовки, включая LevelValue
+    // Все заголовки
     const allHeaders = [...groupHeaders, 'LevelValue', ...dataHeaders];
 
     // Функция для создания базовой строки с учетом группировки
@@ -284,7 +286,7 @@ function App() {
       const row: Record<string, any> = {};
 
       if (groupInfo) {
-        // Инициализируем все уровни группировки пустыми строками
+        // Инициализируем все уровни группировки пустыи строками
         groupHeaders.forEach((header) => {
           row[header] = '';
         });
@@ -319,9 +321,11 @@ function App() {
       // Если нет совпадений, возвращаем одну строку с данными из первой таблицы
       if (matchingRows.length === 0) {
         const baseRow = createBaseRow(rowIndex);
-        selectedFields[files[0].name].forEach(field => {
-          const originalField = fields[files[0].name][fields[files[0].name].indexOf(field)];
-          baseRow[originalField] = firstTableRow[field];
+        // Используем fields вместо selectedFields для сохранения порядка
+        fields[files[0].name].forEach(field => {
+          if (selectedFields[files[0].name].includes(field)) {
+            baseRow[field] = firstTableRow[field];
+          }
         });
         return [baseRow];
       }
@@ -332,22 +336,25 @@ function App() {
 
         // Добавляем данные из первой таблицы только в первую строку
         if (matchIndex === 0) {
-          selectedFields[files[0].name].forEach(field => {
-            const originalField = fields[files[0].name][fields[files[0].name].indexOf(field)];
-            baseRow[originalField] = firstTableRow[field];
+          fields[files[0].name].forEach(field => {
+            if (selectedFields[files[0].name].includes(field)) {
+              baseRow[field] = firstTableRow[field];
+            }
           });
         } else {
           // Оставляем поля из первой таблицы пустыми в последующих строках
-          selectedFields[files[0].name].forEach(field => {
-            const originalField = fields[files[0].name][fields[files[0].name].indexOf(field)];
-            baseRow[originalField] = '';
+          fields[files[0].name].forEach(field => {
+            if (selectedFields[files[0].name].includes(field)) {
+              baseRow[field] = '';
+            }
           });
         }
 
-        // Добавляем данные из второй таблицы без удаления повторов
-        selectedFields[files[1].name].forEach(field => {
-          const originalField = fields[files[1].name][fields[files[1].name].indexOf(field)];
-          baseRow[originalField] = matchingRow[field];
+        // Добавляем данные из второй таблицы, сохраняя исходный порядок полей
+        fields[files[1].name].forEach(field => {
+          if (selectedFields[files[1].name].includes(field)) {
+            baseRow[field] = matchingRow[field];
+          }
         });
 
         return baseRow;
@@ -362,21 +369,20 @@ function App() {
 
     // Обрабатываем LevelValue с использованием selectedFieldsOrder
     const processedData = merged.map((row: { [key: string]: any }) => {
-      // Находим индекс 'LevelValue' в selectedFieldsOrder
-      const levelValueIndex = allHeaders.indexOf('LevelValue');
-
+      const entries = Object.entries(row);
+      const levelValueIndex = entries.findIndex(([key]) => key === 'LevelValue');
+      
       if (levelValueIndex !== -1) {
-        // Получаем название следующего поля
-        const nextField = allHeaders[levelValueIndex + 1];
-        if (nextField) {
-          const nextFieldValue = row[nextField];
+        const nextFieldEntry = entries[levelValueIndex + 1];
+        if (nextFieldEntry) {
+          const [, nextFieldValue] = nextFieldEntry;
           if (!nextFieldValue || nextFieldValue === '') {
-            row['LevelValue'] = '';
+            entries[levelValueIndex][1] = '';
           }
         }
       }
 
-      return row;
+      return Object.fromEntries(entries);
     });
 
     // Обновляем состояния с обработанными данными
