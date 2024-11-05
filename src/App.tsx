@@ -1,15 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from 'react'
-import * as XLSX from 'xlsx'
-import { saveAs } from 'file-saver'
+import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
-import Input from "./components/ui/input"
+import Input from "./components/ui/input";
 import './App.css';
 
-
-// В начале файла добавьте определение типа
+// Define the GroupInfo type
 interface GroupInfo {
   level: number;
   group: number[];
@@ -17,104 +16,93 @@ interface GroupInfo {
   parent?: number;
 }
 
-// В начале файла добавим проверку окружения
-const isProduction = process.env.NODE_ENV === 'production';
-console.log('Environment:', process.env.NODE_ENV);
+// Define the TableRow type
+type TableRow = Record<string, any>;
 
-function App() {
+const App: React.FC = () => {
 
-  const [files, setFiles] = useState<File[]>([])
-  const [tables, setTables] = useState<any[]>([])
-  const [fields, setFields] = useState<{ [key: string]: string[] }>({})
-  const [selectedFields, setSelectedFields] = useState<{ [key: string]: string[] }>({})
-  const [keyFields, setKeyFields] = useState<{ [key: string]: string }>({})
-  const [mergedData, setMergedData] = useState<any[] | null>(null)
-  const [sheets, setSheets] = useState<{ [key: string]: string[] }>({})
-  const [selectedSheets, setSelectedSheets] = useState<{ [key: string]: string }>({})
-  const [mergedPreview, setMergedPreview] = useState<any[] | null>(null)
-  const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([])
-  const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({})
-  const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({})
+  const [files, setFiles] = useState<File[]>([]);
+  const [tables, setTables] = useState<TableRow[][]>([]);
+  const [fields, setFields] = useState<{ [key: string]: string[] }>({});
+  const [selectedFields, setSelectedFields] = useState<{ [key: string]: string[] }>({});
+  const [keyFields, setKeyFields] = useState<{ [key: string]: string }>({});
+  const [mergedData, setMergedData] = useState<TableRow[] | null>(null);
+  const [sheets, setSheets] = useState<{ [key: string]: string[] }>({});
+  const [selectedSheets, setSelectedSheets] = useState<{ [key: string]: string }>({});
+  const [mergedPreview, setMergedPreview] = useState<TableRow[] | null>(null);
+  const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([]);
+  const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({});
+  const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({});
 
-  // Добавим эффект для отслеживания жизненного цикла
   useEffect(() => {
+    // Logging component lifecycle
     console.log('Component lifecycle:', {
       mergedData: !!mergedData,
       selectedFieldsOrder: !!selectedFieldsOrder,
       files: files.length,
       tables: tables.length,
-      isProduction
     });
   }, [mergedData, selectedFieldsOrder, files, tables]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log("File upload started");
-    const newFiles = Array.from(event.target.files || [])
+    const newFiles = Array.from(event.target.files || []);
     console.log("New files:", newFiles.map(f => f.name));
 
     for (const file of newFiles) {
       console.log(`Processing file: ${file.name}`);
-      const reader = new FileReader()
+      const reader = new FileReader();
       reader.onload = async (e) => {
         console.log(`File ${file.name} loaded`);
-        const data = new Uint8Array(e.target?.result as ArrayBuffer)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const sheetNames = workbook.SheetNames
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetNames = workbook.SheetNames;
         console.log(`Sheets in ${file.name}:`, sheetNames);
-        
+
         setFiles(prevFiles => [...prevFiles, file]);
         setSheets(prevSheets => ({
           ...prevSheets,
           [file.name]: sheetNames
-        }))
-
-        // Убираем автоматическую обработку листа
-        // if (sheetNames.length === 1) {
-        //   await processSheet(file, sheetNames[0])
-        // }
-      }
-      reader.readAsArrayBuffer(file)
+        }));
+      };
+      reader.readAsArrayBuffer(file);
     }
-  }
+  };
 
   const processSheet = async (file: File, sheetName: string) => {
     try {
-      const arrayBuffer = await file.arrayBuffer()
+      const arrayBuffer = await file.arrayBuffer();
       console.log(`ArrayBuffer obtained for ${file.name}`);
-      const zip = new JSZip()
-      const zipContents = await zip.loadAsync(arrayBuffer)
-      
+
+      const zip = new JSZip();
+      const zipContents = await zip.loadAsync(arrayBuffer);
+
       console.log('Files in ZIP:', Object.keys(zipContents.files));
-      
+
       let sheetXmlPath = `xl/worksheets/sheet${sheetName}.xml`;
       if (!zipContents.files[sheetXmlPath]) {
         const sheetIndex = 1;
         sheetXmlPath = `xl/worksheets/sheet${sheetIndex}.xml`;
       }
-      
+
       console.log(`Trying to access sheet XML at path: ${sheetXmlPath}`);
-      const sheetXml = await zipContents.file(sheetXmlPath)?.async('string')
+      const sheetXml = await zipContents.file(sheetXmlPath)?.async('string');
 
-      // Обработка XML и поиск заоловка
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-      const worksheet = workbook.Sheets[sheetName]
-      
-      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
-      const endRow = Math.min(range.e.r, 49)
-      const tempRange = { ...range, e: { ...range.e, r: endRow } }
-      const partialJson = XLSX.utils.sheet_to_json(worksheet, { range: tempRange, header: 1 }) as Array<Array<any>>
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const worksheet = workbook.Sheets[sheetName];
 
-      // Функция для пррки, содержт и трока буквы
-      const containsLetters = (str: string) => /[a-zA-Z]/.test(str)
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      const endRow = Math.min(range.e.r, 49);
+      const tempRange = { ...range, e: { ...range.e, r: endRow } };
+      const partialJson = XLSX.utils.sheet_to_json(worksheet, { range: tempRange, header: 1 }) as any[][];
 
+      const containsLetters = (str: string) => /[a-zA-Z]/.test(str);
 
-      // Функция для подсчета значимых ячеек в строке
-      const countSignificantCells = (row: Array<any>) =>
+      const countSignificantCells = (row: any[]) =>
         row.filter(
           (cell) => cell && typeof cell === "string" && containsLetters(cell),
         ).length;
 
-      // Находим строку с наибольшим количеством значимых ячеек
       let headerRowIndex = 0;
       let maxSignificantCells = 0;
 
@@ -126,18 +114,14 @@ function App() {
         }
       });
 
-
-      // Используем найденную строку как заголовки, но берем ТОЛЬКО названия столбцов
       const headerRow = partialJson[headerRowIndex];
       const headers: string[] = headerRow.map(cell => String(cell || '').trim());
 
-
-      // Получаем все данные после заголовков
       const fullRange = {
         ...range,
         s: { ...range.s, r: headerRowIndex + 1 },
       };
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+      const jsonData = XLSX.utils.sheet_to_json<TableRow>(worksheet, {
         range: fullRange,
         header: headers,
       });
@@ -154,30 +138,29 @@ function App() {
       setFields(prevFields => ({
         ...prevFields,
         [file.name]: headers
-      }))
+      }));
       setSelectedFields(prevSelected => ({
         ...prevSelected,
         [file.name]: [],
-      }))
+      }));
       setKeyFields(prevKeys => ({
         ...prevKeys,
         [file.name]: '',
-      }))
+      }));
 
       setSelectedSheets(prevSelected => ({
         ...prevSelected,
         [file.name]: sheetName
-      }))
+      }));
 
-      // Обработка XML л группировки
       if (sheetXml) {
         const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
         const parsedXml = parser.parse(sheetXml);
-        
+
         if (parsedXml.worksheet && parsedXml.worksheet.sheetData && parsedXml.worksheet.sheetData.row) {
           const rows = parsedXml.worksheet.sheetData.row;
           const groupingInfo = extractGroupingInfo(rows, headerRowIndex);
-          
+
           setGroupingStructure(prevStructure => ({
             ...prevStructure,
             [file.name]: groupingInfo
@@ -193,23 +176,20 @@ function App() {
     } catch (error) {
       console.error('Error in processSheet:', error);
     }
-  }
+  };
 
-  const extractGroupingInfo = (rows: any[], headerOffset: number) => {
+  const extractGroupingInfo = (rows: any[], headerOffset: number): { [key: string]: GroupInfo } => {
     const groupingInfo: { [key: string]: GroupInfo } = {};
-    
+
     rows.forEach((row: any) => {
       const rowIndex = parseInt(row['@_r']);
-      
-      // Пропускаем строки до заголовка
+
       if (rowIndex <= headerOffset) {
         return;
       }
 
-      // Получаем уровень группировки из XML
       const outlineLevel = parseInt(row['@_outlineLevel'] || '0');
-      
-      // Схраняем информацию о группировке со скорректированны индексом
+
       const adjustedIndex = rowIndex - headerOffset;
       groupingInfo[adjustedIndex.toString()] = {
         level: outlineLevel,
@@ -222,13 +202,13 @@ function App() {
   };
 
   const handleSheetSelection = (fileName: string, sheetName: string) => {
-    const file = files.find(f => f.name === fileName)
+    const file = files.find(f => f.name === fileName);
     if (file) {
-      processSheet(file, sheetName)
+      processSheet(file, sheetName);
     } else {
       console.error(`File not found: ${fileName}`);
     }
-  }
+  };
 
   const handleFieldSelection = (fileName: string, field: string) => {
     setSelectedFields((prevFields) => {
@@ -251,7 +231,7 @@ function App() {
 
   const mergeTables = () => {
     console.log('Starting merge process...');
-    
+
     if (tables.length < 2) {
       alert("Please upload both tables to merge.");
       return;
@@ -263,41 +243,35 @@ function App() {
       return;
     }
 
-    // Получаем информацию о группировке
     const groupedFile = files[0];
     const groupInfo = groupingStructure[groupedFile.name];
     const maxLevel = groupInfo ? Math.max(...Object.values(groupInfo).map(info => info.level)) : 0;
 
-    // Создаем заголовки для уровней группировки
     const groupHeaders = Array.from({ length: maxLevel + 1 }, (_, i) => `Level_${i + 1}`);
 
-    // Создаем заголовки данных, сохраняя порядок полей из исходных таблиц
     const dataHeaders: string[] = [];
     files.forEach(file => {
       const fileFields = fields[file.name].filter(field => selectedFields[file.name].includes(field));
       dataHeaders.push(...fileFields);
     });
 
-    // Все заголовки
-    const allHeaders = [...groupHeaders, 'LevelValue', ...dataHeaders];
+    // Add the extra column 'Note' at the end
+    const allHeaders = [...groupHeaders, 'LevelValue', ...dataHeaders, 'Note'];
 
-    // Функция для создания базовой строки с учетом группировки
-    const createBaseRow = (rowIndex: number) => {
-      const row: Record<string, any> = {};
+    const createBaseRow = (rowIndex: number): TableRow => {
+      const row: TableRow = {};
 
       if (groupInfo) {
-        // Инициализируем все уровни группировки пустыи строками
         groupHeaders.forEach((header) => {
           row[header] = '';
         });
 
-        // Получаем информацию о группировке для текущей строки
-        const groupData = groupInfo[rowIndex + 2]; // +1 для учета индексации
+        const groupData = groupInfo[(rowIndex + 2).toString()]; // +2 to account for indexing
         if (groupData) {
           const level = groupData.level;
           if (level >= 0 && level < groupHeaders.length) {
             row[groupHeaders[level]] = groupData.level + 1;
-            row['LevelValue'] = groupData.level + 1; // Добавляем LevelValue
+            row['LevelValue'] = groupData.level + 1;
           }
         }
       }
@@ -305,36 +279,56 @@ function App() {
       return row;
     };
 
-    // Функция для создания строк с совпадениями без удаления повторов
     const createRowsWithMatches = (
-      firstTableRow: Record<string, any>, 
+      firstTableRow: TableRow,
       rowIndex: number
-    ): any[] => {
+    ): TableRow[] => {
       const firstTableKeyField = keyFields[files[0].name];
       const secondTable = tables[1];
       const secondKeyField = keyFields[files[1].name];
-      
-      const matchingRows = secondTable.filter((r: Record<string, any>) => 
+
+      const matchingRows = secondTable.filter((r: TableRow) =>
         r[secondKeyField] === firstTableRow[firstTableKeyField]
       );
 
-      // Если нет совпадений, возвращаем одну строку с данными из первой таблицы
       if (matchingRows.length === 0) {
         const baseRow = createBaseRow(rowIndex);
-        // Используем fields вместо selectedFields для сохранения порядка
+
+        // Add data from the first table
         fields[files[0].name].forEach(field => {
           if (selectedFields[files[0].name].includes(field)) {
             baseRow[field] = firstTableRow[field];
           }
         });
+
+        // Add empty values for fields from the second table
+        fields[files[1].name].forEach(field => {
+          if (selectedFields[files[1].name].includes(field)) {
+            baseRow[field] = '';
+          }
+        });
+
+        // Add visual marker in the 'Note' column
+        baseRow['Note'] = '******';
+
         return [baseRow];
       }
 
-      // Создаем строки для каждого совпадения без удаления повторов
-      return matchingRows.map((matchingRow: Record<string, any>, matchIndex: number) => {
+      // Remove duplicates from matchingRows, excluding Level fields
+      const uniqueMatchingRowsMap = new Map<string, TableRow>();
+      matchingRows.forEach((row) => {
+        const fieldsToConsider = selectedFields[files[1].name].filter(field => !field.startsWith('Level'));
+        const key = fieldsToConsider.map(field => row[field]).join('|');
+        if (!uniqueMatchingRowsMap.has(key)) {
+          uniqueMatchingRowsMap.set(key, row);
+        }
+      });
+      const uniqueMatchingRows = Array.from(uniqueMatchingRowsMap.values());
+
+      return uniqueMatchingRows.map((matchingRow: TableRow, matchIndex: number) => {
         const baseRow = createBaseRow(rowIndex);
 
-        // Добавляем данные из первой таблицы только в первую строку
+        // Add data from the first table only in the first matching row
         if (matchIndex === 0) {
           fields[files[0].name].forEach(field => {
             if (selectedFields[files[0].name].includes(field)) {
@@ -342,7 +336,6 @@ function App() {
             }
           });
         } else {
-          // Оставляем поля из первой таблицы пустыми в последующих строках
           fields[files[0].name].forEach(field => {
             if (selectedFields[files[0].name].includes(field)) {
               baseRow[field] = '';
@@ -350,28 +343,31 @@ function App() {
           });
         }
 
-        // Добавляем данные из второй таблицы, сохраняя исходный порядок полей
+        // Add data from the second table
         fields[files[1].name].forEach(field => {
           if (selectedFields[files[1].name].includes(field)) {
             baseRow[field] = matchingRow[field];
           }
         });
 
+        // Leave 'Note' column empty for matched rows
+        baseRow['Note'] = '';
+
         return baseRow;
       });
     };
 
-    // Создаем объединенные данные
+    // Merge the tables
     const merged = tables[0]
-      .flatMap((row: Record<string, any>, index: number) => 
+      .flatMap((row: TableRow, index: number) =>
         createRowsWithMatches(row, index)
       );
 
-    // Обрабатываем LevelValue с использованием selectedFieldsOrder
-    const processedData = merged.map((row: { [key: string]: any }) => {
+    // Process LevelValue
+    const processedData = merged.map((row: TableRow) => {
       const entries = Object.entries(row);
       const levelValueIndex = entries.findIndex(([key]) => key === 'LevelValue');
-      
+
       if (levelValueIndex !== -1) {
         const nextFieldEntry = entries[levelValueIndex + 1];
         if (nextFieldEntry) {
@@ -385,40 +381,37 @@ function App() {
       return Object.fromEntries(entries);
     });
 
-    // Обновляем состояния с обработанными данными
-    setMergedData(processedData);
-    setMergedPreview(processedData.slice(0, 10));
+    // Filter out rows where all data fields are empty (excluding Level fields)
+    const dataFields = allHeaders.filter(header => !header.startsWith('Level') && header !== 'Note');
+    const filteredData = processedData.filter(row => {
+      return dataFields.some(field => {
+        const value = row[field];
+        return value !== undefined && value !== null && value !== '';
+      });
+    });
+
+    setMergedData(filteredData);
+    setMergedPreview(filteredData.slice(0, 10));
     setSelectedFieldsOrder(allHeaders);
 
     console.log('Final headers:', allHeaders);
-    console.log('Final merged data:', processedData);
+    console.log('Final merged data:', filteredData);
   };
 
   const downloadMergedFile = () => {
     if (!mergedData || mergedData.length === 0) {
-      alert('No data to download. Please merge tables first.')
-      return
+      alert('No data to download. Please merge tables first.');
+      return;
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(mergedData)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Merged')
+    const worksheet = XLSX.utils.json_to_sheet(mergedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Merged');
 
-    // Добавляем группировку
-    const groupedFile = files.find(file => isGrouped[file.name])
-    if (groupedFile) {
-      const groupInfo = groupingStructure[groupedFile.name] as { [key: string]: GroupInfo }
-      const maxLevel = Math.max(...Object.values(groupInfo).map(info => info.level), 0)
-      
-      for (let i = 0; i <= maxLevel; i++) {
-        worksheet['!outline'] = { ...worksheet['!outline'], [i]: 1 }
-      }
-    }
-
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
-    const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    saveAs(data, 'merged_tables.xlsx')
-  }
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(data, 'merged_tables.xlsx');
+  };
 
   return (
     <div className="App">
@@ -460,14 +453,12 @@ function App() {
                   >
                     <option value="">Select a sheet</option>
                     {sheets[files[index].name].map((sheet, sheetIndex) => (
-
                       <option key={`${sheet}-${sheetIndex}`} value={sheet}>{sheet}</option>
-
                     ))}
                   </select>
                 </div>
               )}
-              
+
               {files[index] && selectedSheets[files[index].name] && (
                 <div className="file-content">
                   <div className="fields-column">
@@ -580,6 +571,8 @@ function App() {
                         padding: "12px 8px",
                         borderBottom: "2px solid #ddd",
                         textAlign: "left",
+                        backgroundColor: field === 'Note' ? '#f8d7da' : 'transparent',
+                        color: field === 'Note' ? '#721c24' : 'inherit',
                       }}
                     >
                       {field}
@@ -597,6 +590,8 @@ function App() {
                           style={{
                             padding: "8px",
                             borderBottom: "1px solid #ddd",
+                            backgroundColor: field === 'Note' && row['Note'] ? '#f8d7da' : 'transparent',
+                            color: field === 'Note' && row['Note'] ? '#721c24' : 'inherit',
                           }}
                         >
                           {row[field] !== undefined ? String(row[field]) : ""}
@@ -617,7 +612,6 @@ function App() {
       )}
     </div>
   );
-}
+};
 
 export default App;
-
