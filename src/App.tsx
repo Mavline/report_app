@@ -292,7 +292,7 @@ function App() {
         });
 
         // Получаем информацию о группировке для текущей строки
-        const groupData = groupInfo[rowIndex + 1]; // +1 для учета индексации
+        const groupData = groupInfo[rowIndex + 2]; // +1 для учета индексации
         if (groupData) {
           const level = groupData.level;
           if (level >= 0 && level < groupHeaders.length) {
