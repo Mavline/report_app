@@ -282,12 +282,16 @@ const App: React.FC = () => {
           row[header] = '';
         });
 
-        const groupData = groupInfo[(rowIndex + 2).toString()]; // +2 to account for indexing
+        const groupData = groupInfo[(rowIndex + 2).toString()];
         if (groupData) {
           const level = groupData.level;
           if (level >= 0 && level < groupHeaders.length) {
-            row[groupHeaders[level]] = groupData.level + 1;
-            row['LevelValue'] = groupData.level + 1;
+            const levelValue = groupData.level + 1;
+            row[groupHeaders[level]] = levelValue;
+            // Добавляем точки перед числом, сохраняя само число
+            const dots = '.'.repeat(levelValue + 1); // +1 чтобы начать с двух точек для уровня 1
+            row['LevelValue'] = levelValue; // Сохраняем числовое значение
+            row['LevelValue'] = `${dots}${levelValue}`; // Добавляем точки перед числом
           }
         }
       }
@@ -536,9 +540,66 @@ const App: React.FC = () => {
     return expandedParts.join(',');
   };
 
+  // Добавим функцию для сброса состояния
+  const handleReset = () => {
+    // Очищаем все состояния
+    setFiles([]);
+    setTables([]);
+    setFields({});
+    setSelectedFields({});
+    setKeyFields({});
+    setMergedData(null);
+    setSheets({});
+    setSelectedSheets({});
+    setMergedPreview(null);
+    setSelectedFieldsOrder([]);
+    setIsGrouped({});
+    setGroupingStructure({});
+    setColumnToProcess('');
+    setSecondColumnToProcess('');
+    
+    // Перезагружаем страницу
+    window.location.reload();
+  };
+
   return (
     <div className="App">
       <header className="App-header">
+        {/* Добавляем кнопку RESET */}
+        <div className="reset-container" style={{ 
+          width: '100%',
+          padding: '20px',
+          backgroundColor: '#015f60',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '20px'
+        }}>
+          <button
+            onClick={handleReset}
+            style={{
+              padding: "12px 24px",
+              backgroundColor: "#dc3545",
+              color: "white",
+              border: "none",
+              borderRadius: "4px",
+              fontSize: "16px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+            }}
+          >
+            RESET
+          </button>
+          <span style={{
+            fontSize: "30px",
+            color: "#59fafc",
+            fontStyle: "Arial"
+          }}>
+            Start over, refresh process or clear memory
+          </span>
+        </div>
+
         <h1 className="text-3xl font-bold mb-6">Excel Table Merger</h1>
         <div className="file-container-wrapper">
           {[0, 1].map((index) => (
@@ -553,6 +614,10 @@ const App: React.FC = () => {
                 accept=".xlsx,.xls"
                 onChange={handleFileUpload}
                 className="mb-4 w-full p-2 border border-gray-300 rounded"
+                style={{
+                  backgroundColor: "#59fafc",
+                  color: "black"
+                }}
               />
               {!files[index] && (
                 <p className="text-gray-500 mb-4">No file selected</p>
@@ -569,7 +634,7 @@ const App: React.FC = () => {
                       padding: "8px",
                       border: "1px solid #ccc",
                       borderRadius: "4px",
-                      backgroundColor: "white",
+                      backgroundColor: "#59fafc",
                       color: "black",
                       fontSize: "14px",
                     }}
@@ -621,7 +686,7 @@ const App: React.FC = () => {
                         padding: "8px",
                         border: "1px solid #ccc",
                         borderRadius: "4px",
-                        backgroundColor: "white",
+                        backgroundColor: "#59fafc",
                         color: "black",
                         fontSize: "14px",
                       }}
@@ -650,7 +715,7 @@ const App: React.FC = () => {
                 padding: "8px",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
-                backgroundColor: "white",
+                backgroundColor: "#59fafc",
                 color: "black",
                 fontSize: "14px",
               }}
@@ -674,7 +739,7 @@ const App: React.FC = () => {
                 padding: "8px",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
-                backgroundColor: "white",
+                backgroundColor: "#59fafc",
                 color: "black",
                 fontSize: "14px",
               }}
@@ -697,7 +762,7 @@ const App: React.FC = () => {
                 padding: "8px 16px",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
-                backgroundColor: "white",
+                backgroundColor: "#59fafc",
                 color: "black",
                 fontSize: "14px",
                 cursor: "pointer",
@@ -713,7 +778,7 @@ const App: React.FC = () => {
                 padding: "8px 16px",
                 border: "1px solid #ccc",
                 borderRadius: "4px",
-                backgroundColor: "white",
+                backgroundColor: "#59fafc",
                 color: "black",
                 fontSize: "14px",
                 cursor: "pointer",
