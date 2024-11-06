@@ -628,62 +628,65 @@ const App: React.FC = () => {
             </div>
           ))}
         </div>
-        <div className="button-container">
-          <button
-            onClick={mergeTables}
-            disabled={files.length < 2}
-            style={{
-              padding: "8px 16px",
-              border: "1px solid #ccc",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              color: "black",
-              fontSize: "14px",
-              cursor: "pointer",
-              marginRight: "10px",
-            }}
-          >
-            Merge
-          </button>
-          <button
-            onClick={downloadMergedFile}
-            disabled={!mergedData}
-            style={{
-              padding: "8px 16px",
-              border: "1px solid #ccc",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              color: "black",
-              fontSize: "14px",
-              cursor: "pointer",
-            }}
-          >
-            Download
-          </button>
-        </div>
-        {/* Добавляем выбор столбца для расширения диапазонов */}
-        <div className="column-selection" style={{ marginTop: '20px' }}>
-          <h3 className="font-medium mb-2">Select Column to Expand Ranges:</h3>
-          <select
-            value={columnToProcess}
-            onChange={(e) => setColumnToProcess(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px",
-              border: "1px solid #ccc",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              color: "black",
-              fontSize: "14px",
-            }}
-          >
-            <option value="">Select a column</option>
-            {selectedFieldsOrder.map((field) => (
-              <option key={field} value={field}>
-                {field}
-              </option>
-            ))}
-          </select>
+        <div className="controls-container">
+          {/* Селектор столбца для расширения диапазонов */}
+          <div className="range-selector" style={{ marginBottom: '20px' }}>
+            <select
+              value={columnToProcess}
+              onChange={(e) => setColumnToProcess(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                backgroundColor: "white",
+                color: "black",
+                fontSize: "14px",
+              }}
+            >
+              <option value="">Select Column to Expand Ranges</option>
+              {selectedFieldsOrder.map((field) => (
+                <option key={field} value={field}>
+                  {field}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Кнопки управления */}
+          <div className="button-container">
+            <button
+              onClick={mergeTables}
+              disabled={files.length < 2}
+              style={{
+                padding: "8px 16px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                backgroundColor: "white",
+                color: "black",
+                fontSize: "14px",
+                cursor: "pointer",
+                marginRight: "10px",
+              }}
+            >
+              Merge
+            </button>
+            <button
+              onClick={downloadMergedFile}
+              disabled={!mergedData}
+              style={{
+                padding: "8px 16px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                backgroundColor: "white",
+                color: "black",
+                fontSize: "14px",
+                cursor: "pointer",
+              }}
+            >
+              Download
+            </button>
+          </div>
         </div>
       </header>
 
