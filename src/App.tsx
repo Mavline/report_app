@@ -7,6 +7,7 @@ import JSZip from 'jszip';
 import { XMLParser } from 'fast-xml-parser';
 import Input from "./components/ui/input";
 import './App.css';
+import ExcelJS from 'exceljs';
 
 // Define the GroupInfo type
 interface GroupInfo {
@@ -426,19 +427,59 @@ const App: React.FC = () => {
     console.log('Final merged data:', mergedData);
   };
 
-  const downloadMergedFile = () => {
+  const downloadMergedFile = async () => {
     if (!mergedData || mergedData.length === 0) {
       alert('No data to download. Please merge tables first.');
       return;
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(mergedData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Merged');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Merged');
 
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(data, 'merged_tables.xlsx');
+    // Добавляем заголовки и данные
+    worksheet.columns = selectedFieldsOrder.map(header => ({
+      header,
+      key: header
+    }));
+    worksheet.addRows(mergedData);
+
+    // Применяем стили после добавления всех данных
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // Пропускаем заголовки
+
+      const rowData = mergedData[rowNumber - 2];
+      const hasLevelValue = rowData && rowData['LevelValue'];
+
+      // Если есть LevelValue, применяем стили ко всей строке
+      if (hasLevelValue) {
+        row.eachCell({ includeEmpty: true }, cell => {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFC5' } // Бледно-желтый цвет
+          };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      } else {
+        // Для строк без LevelValue добавляем только вертикальные границы
+        row.eachCell({ includeEmpty: true }, cell => {
+          cell.border = {
+            left: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+    });
+    saveAs(blob, 'merged_tables.xlsx');
   };
 
   const expandRanges = (value: string): string => {
