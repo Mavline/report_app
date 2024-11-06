@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({});
   const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({});
   const [columnToProcess, setColumnToProcess] = useState<string>('');
+  const [secondColumnToProcess, setSecondColumnToProcess] = useState<string>('');
 
   useEffect(() => {
     // Logging component lifecycle
@@ -406,12 +407,22 @@ const App: React.FC = () => {
     });
 
     // Добавляем обрабоку выбранного столбца для расширения диапазонов
-    if (columnToProcess) {
+    if (columnToProcess || secondColumnToProcess) {
       const processedDataWithExpandedRanges = filteredData.map((row) => {
+        // Обработка первой выбранной колонки
+    if (columnToProcess) {
         const cellValue = row[columnToProcess];
         if (typeof cellValue === 'string' && cellValue.includes('-')) {
-          // Расширяем диапазоны
           row[columnToProcess] = expandRanges(cellValue);
+          }
+        }
+        
+        // Обработка второй выбранной колонки
+        if (secondColumnToProcess) {
+          const cellValue = row[secondColumnToProcess];
+          if (typeof cellValue === 'string' && cellValue.includes('-')) {
+            row[secondColumnToProcess] = expandRanges(cellValue);
+          }
         }
         return row;
       });
@@ -629,8 +640,8 @@ const App: React.FC = () => {
           ))}
         </div>
         <div className="controls-container">
-          {/* Селектор столбца для расширения диапазонов */}
-          <div className="range-selector" style={{ marginBottom: '20px' }}>
+          {/* Первый селектор столбца */}
+          <div className="range-selector" style={{ marginBottom: '10px' }}>
             <select
               value={columnToProcess}
               onChange={(e) => setColumnToProcess(e.target.value)}
@@ -644,7 +655,31 @@ const App: React.FC = () => {
                 fontSize: "14px",
               }}
             >
-              <option value="">Select Column to Expand Ranges</option>
+              <option value="">Select First Column to Expand Ranges</option>
+              {selectedFieldsOrder.map((field) => (
+                <option key={field} value={field}>
+                  {field}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Второй селектор столбца */}
+          <div className="range-selector" style={{ marginBottom: '20px' }}>
+            <select
+              value={secondColumnToProcess}
+              onChange={(e) => setSecondColumnToProcess(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                backgroundColor: "white",
+                color: "black",
+                fontSize: "14px",
+              }}
+            >
+              <option value="">Select Second Column to Expand Ranges</option>
               {selectedFieldsOrder.map((field) => (
                 <option key={field} value={field}>
                   {field}
