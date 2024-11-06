@@ -33,6 +33,7 @@ const App: React.FC = () => {
   const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([]);
   const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({});
   const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({});
+  const [columnToProcess, setColumnToProcess] = useState<string>('');
 
   useEffect(() => {
     // Logging component lifecycle
@@ -43,6 +44,19 @@ const App: React.FC = () => {
       tables: tables.length,
     });
   }, [mergedData, selectedFieldsOrder, files, tables]);
+
+  useEffect(() => {
+    const allSelectedFields: string[] = [];
+
+    // Собираем все выбранные поля из обеих таблиц
+    files.forEach(file => {
+      const fileFields = selectedFields[file.name] || [];
+      allSelectedFields.push(...fileFields);
+    });
+
+    // Обновляем selectedFieldsOrder
+    setSelectedFieldsOrder(allSelectedFields);
+  }, [selectedFields, files]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log("File upload started");
@@ -390,12 +404,26 @@ const App: React.FC = () => {
       });
     });
 
-    setMergedData(filteredData);
-    setMergedPreview(filteredData.slice(0, 10));
-    setSelectedFieldsOrder(allHeaders);
+    // Добавляем обрабоку выбранного столбца для расширения диапазонов
+    if (columnToProcess) {
+      const processedDataWithExpandedRanges = filteredData.map((row) => {
+        const cellValue = row[columnToProcess];
+        if (typeof cellValue === 'string' && cellValue.includes('-')) {
+          // Расширяем диапазоны
+          row[columnToProcess] = expandRanges(cellValue);
+        }
+        return row;
+      });
+      setMergedData(processedDataWithExpandedRanges);
+      setMergedPreview(processedDataWithExpandedRanges.slice(0, 10));
+    } else {
+      setMergedData(filteredData);
+      setMergedPreview(filteredData.slice(0, 10));
+    }
 
+    setSelectedFieldsOrder(allHeaders);
     console.log('Final headers:', allHeaders);
-    console.log('Final merged data:', filteredData);
+    console.log('Final merged data:', mergedData);
   };
 
   const downloadMergedFile = () => {
@@ -411,6 +439,49 @@ const App: React.FC = () => {
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(data, 'merged_tables.xlsx');
+  };
+
+  const expandRanges = (value: string): string => {
+    const parts = value.split(',');
+    const expandedParts: string[] = [];
+
+    parts.forEach((part) => {
+      part = part.trim();
+      if (part.includes('-')) {
+        const [start, end] = part.split('-').map((s) => s.trim());
+
+        const startMatch = start.match(/^([A-Za-z]*)(\d+)$/);
+        const endMatch = end.match(/^([A-Za-z]*)(\d+)$/);
+
+        if (startMatch && endMatch) {
+          const startPrefix = startMatch[1];
+          const startNum = parseInt(startMatch[2], 10);
+
+          const endPrefix = endMatch[1];
+          const endNum = parseInt(endMatch[2], 10);
+
+          if (startPrefix === endPrefix) {
+            if (startNum <= endNum) {
+              for (let i = startNum; i <= endNum; i++) {
+                expandedParts.push(`${startPrefix}${i}`);
+              }
+            } else {
+              for (let i = startNum; i >= endNum; i--) {
+                expandedParts.push(`${startPrefix}${i}`);
+              }
+            }
+          } else {
+            expandedParts.push(part);
+          }
+        } else {
+          expandedParts.push(part);
+        }
+      } else {
+        expandedParts.push(part);
+      }
+    });
+
+    return expandedParts.join(',');
   };
 
   return (
@@ -548,6 +619,30 @@ const App: React.FC = () => {
           >
             Download
           </button>
+        </div>
+        {/* Добавляем выбор столбца для расширения диапазонов */}
+        <div className="column-selection" style={{ marginTop: '20px' }}>
+          <h3 className="font-medium mb-2">Select Column to Expand Ranges:</h3>
+          <select
+            value={columnToProcess}
+            onChange={(e) => setColumnToProcess(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "8px",
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+              backgroundColor: "white",
+              color: "black",
+              fontSize: "14px",
+            }}
+          >
+            <option value="">Select a column</option>
+            {selectedFieldsOrder.map((field) => (
+              <option key={field} value={field}>
+                {field}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
