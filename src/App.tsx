@@ -32,7 +32,6 @@ const App: React.FC = () => {
   const [selectedSheets, setSelectedSheets] = useState<{ [key: string]: string }>({});
   const [mergedPreview, setMergedPreview] = useState<TableRow[] | null>(null);
   const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([]);
-  const [isGrouped, setIsGrouped] = useState<{ [key: string]: boolean }>({});
   const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({});
   const [columnToProcess, setColumnToProcess] = useState<string>('');
   const [secondColumnToProcess, setSecondColumnToProcess] = useState<string>('');
@@ -131,7 +130,18 @@ const App: React.FC = () => {
       });
 
       const headerRow = partialJson[headerRowIndex];
-      const headers: string[] = headerRow.map(cell => String(cell || '').trim());
+      let headers: string[] = headerRow.map(cell => String(cell || '').trim());
+
+      const headerCount: { [key: string]: number } = {};
+      headers = headers.map(header => {
+        if (headerCount[header]) {
+          headerCount[header] += 1;
+          return `${header}-${headerCount[header]}`;
+        } else {
+          headerCount[header] = 1;
+          return header;
+        }
+      });
 
       const fullRange = {
         ...range,
@@ -180,11 +190,6 @@ const App: React.FC = () => {
           setGroupingStructure(prevStructure => ({
             ...prevStructure,
             [file.name]: groupingInfo
-          }));
-
-          setIsGrouped(prevGrouped => ({
-            ...prevGrouped,
-            [file.name]: Object.keys(groupingInfo).length > 0
           }));
         }
       }
@@ -421,7 +426,7 @@ const App: React.FC = () => {
           }
         }
         
-        // Обработка второй выбранной колонки
+        // Обработка второй выбранной коонки
         if (secondColumnToProcess) {
           const cellValue = row[secondColumnToProcess];
           if (typeof cellValue === 'string' && cellValue.includes('-')) {
@@ -553,7 +558,6 @@ const App: React.FC = () => {
     setSelectedSheets({});
     setMergedPreview(null);
     setSelectedFieldsOrder([]);
-    setIsGrouped({});
     setGroupingStructure({});
     setColumnToProcess('');
     setSecondColumnToProcess('');
