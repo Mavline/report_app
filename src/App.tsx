@@ -288,15 +288,27 @@ const App: React.FC = () => {
         });
 
         const groupData = groupInfo[(rowIndex + 2).toString()];
+        
         if (groupData) {
           const level = groupData.level;
           if (level >= 0 && level < groupHeaders.length) {
             const levelValue = groupData.level + 1;
             row[groupHeaders[level]] = levelValue;
-            // Добавляем точки перед числом, сохраняя само число
-            const dots = '.'.repeat(levelValue + 1); // +1 чтобы начать с двух точек для уровня 1
-            row['LevelValue'] = levelValue; // Сохраняем числовое значение
-            row['LevelValue'] = `${dots}${levelValue}`; // Добавляем точки перед числом
+            // Сохраняем существующую логику
+            const dots = '.'.repeat(levelValue + 1);
+            row['LevelValue'] = `${dots}${levelValue}`;
+          }
+        } else {
+          // ДОБАВЛЯЕМ новую логику только для случая отсутствия группировки
+          const firstTable = tables[0];
+          const keyField = keyFields[files[0].name];
+          if (firstTable && keyField && firstTable[rowIndex]) {
+            const keyValue = firstTable[rowIndex][keyField];
+            // Проверяем наличие значения в ключевом поле справа
+            if (keyValue && keyValue.toString().trim() !== '') {
+              // Добавляем только LevelValue = '..1' если нет группировки и есть значение в ключевом поле
+              row['LevelValue'] = '..1';
+            }
           }
         }
       }
