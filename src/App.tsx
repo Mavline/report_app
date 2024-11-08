@@ -471,13 +471,44 @@ const App: React.FC = () => {
     // Добавляем заголовки и данные
     worksheet.columns = selectedFieldsOrder.map(header => ({
       header,
-      key: header
+      key: header,
+      width: header.startsWith('Level_') ? 8.43 : // стандартная ширина для уровней
+             header === 'LevelValue' ? 8.43 :     // стандартная ширина для LevelValue
+             header === 'Note' ? 8.43 :           // стандартная ширина для Note
+             12,                                  // ширина для остальных колонок
     }));
     worksheet.addRows(mergedData);
 
-    // Применяем стили после добавления всех данных
+    // Стилизация заголовков
+    worksheet.getRow(1).eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'B1F0F0' }  // Голубой цвет
+      };
+      cell.font = {
+        bold: true,
+        size: 9,
+        color: { argb: '000000' }  // Черный цвет текста
+      };
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+
+    // Устанавливаем размер шрифта для всех данных
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return; // Пропускаем заголовки
+
+      row.eachCell({ includeEmpty: true }, cell => {
+        cell.font = {
+          size: 9,
+          ...cell.font  // Сохраняем другие свойства шрифта если они есть
+        };
+      });
 
       const rowData = mergedData[rowNumber - 2];
       const hasLevelValue = rowData && rowData['LevelValue'];
@@ -488,12 +519,16 @@ const App: React.FC = () => {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFFFC5' } // Бледно-желтый цвет
+            fgColor: { argb: 'FFFFC5' }
           };
           cell.border = {
             top: { style: 'thin' },
             left: { style: 'thin' },
             right: { style: 'thin' }
+          };
+          cell.font = {
+            size: 9,
+            ...cell.font
           };
         });
       } else {
@@ -502,6 +537,10 @@ const App: React.FC = () => {
           cell.border = {
             left: { style: 'thin' },
             right: { style: 'thin' }
+          };
+          cell.font = {
+            size: 9,
+            ...cell.font
           };
         });
       }
