@@ -233,12 +233,14 @@ const App: React.FC = () => {
 
   const handleFieldSelection = (fileName: string, field: string) => {
     setSelectedFields((prevFields) => {
-      const updatedFields = prevFields[fileName].includes(field)
-        ? prevFields[fileName].filter((f) => f !== field)
-        : [...prevFields[fileName], field];
+      const currentFields = prevFields[fileName] || [];
+      const isFieldSelected = currentFields.includes(field);
+      
       return {
         ...prevFields,
-        [fileName]: updatedFields,
+        [fileName]: isFieldSelected 
+          ? currentFields.filter(f => f !== field)
+          : [...currentFields, field]
       };
     });
   };
@@ -246,8 +248,18 @@ const App: React.FC = () => {
   const handleKeyFieldSelection = (fileName: string, field: string) => {
     setKeyFields((prevKeys) => ({
       ...prevKeys,
-      [fileName]: field,
+      [fileName]: prevKeys[fileName] === field ? '' : field
     }));
+  };
+
+  const handleColumnToProcessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setColumnToProcess(prev => prev === value ? '' : value);
+  };
+
+  const handleSecondColumnToProcessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSecondColumnToProcess(prev => prev === value ? '' : value);
   };
 
   const mergeTables = () => {
@@ -764,7 +776,7 @@ const App: React.FC = () => {
           <div className="range-selector" style={{ marginBottom: '10px' }}>
             <select
               value={columnToProcess}
-              onChange={(e) => setColumnToProcess(e.target.value)}
+              onChange={handleColumnToProcessChange}
               style={{
                 width: "100%",
                 padding: "8px",
@@ -788,7 +800,7 @@ const App: React.FC = () => {
           <div className="range-selector" style={{ marginBottom: '20px' }}>
             <select
               value={secondColumnToProcess}
-              onChange={(e) => setSecondColumnToProcess(e.target.value)}
+              onChange={handleSecondColumnToProcessChange}
               style={{
                 width: "100%",
                 padding: "8px",
