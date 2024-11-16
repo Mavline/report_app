@@ -20,67 +20,215 @@ interface GroupInfo {
 // Define the TableRow type
 type TableRow = Record<string, any>;
 
+// Обновляем интерфейс SelectedColumns
+interface SelectedColumns {
+  [key: string]: { // Добавляем индексную сигнатуру
+    keyColumn: string;
+    dataColumns: string[];
+  };
+  leftSheet: {
+    keyColumn: string;
+    dataColumns: string[];
+  };
+  rightSheet: {
+    keyColumn: string;
+    dataColumns: string[];
+  };
+}
+
+interface TemplateColumn {
+  id: string;
+  title: string;
+  isDateColumn?: boolean;
+  isRequired?: boolean;
+  isMultiple?: boolean;
+}
+
+const templateColumns: TemplateColumn[] = [
+  { id: 'PO', title: 'PO' },
+  { id: 'Line', title: 'Line' },
+  { id: 'PN', title: 'PN', isRequired: true },
+  { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
+  { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
+  { id: 'Delivery-Expected', title: 'Delivery-Expected', isDateColumn: true }
+];
+
+// Обновляем интерфейс для маппинга полей с датами
+interface DateColumnMapping {
+  sourceSheet: string;
+  sourceField: string;
+  date: string;
+}
+
+// Обновляем интерфейс FieldMapping для поддержки множественных полей
+interface FieldMapping {
+  [templateField: string]: {
+    sourceSheet: string;
+    sourceField: string;
+  } | DateColumnMapping[];
+}
+
+// Добавляем функцию форматирования дат
+const formatDate = (value: any): string => {
+  if (!value) return '';
+  
+  // Проверяем, является ли значение числом (Excel serial number)
+  if (typeof value === 'number') {
+    const date = new Date((value - 25569) * 86400 * 1000);
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: '2-digit'
+    });
+  }
+  
+  // Если это уже строка с датой, форматируем её
+  const date = new Date(value);
+  if (!isNaN(date.getTime())) {
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: '2-digit'
+    });
+  }
+  
+  return value;
+};
+
+// Добавляем интерфейс для данных листа
+interface SheetData {
+  name: string;
+  data: TableRow[];
+}
+
 const App: React.FC = () => {
 
-  const [files, setFiles] = useState<File[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [sheets, setSheets] = useState<string[]>([]);
+  const [selectedSheets, setSelectedSheets] = useState<{
+    left: string;
+    right: string;
+  }>({ left: '', right: '' });
+  const [sheetFields, setSheetFields] = useState<{
+    [sheetName: string]: string[];
+  }>({});
   const [tables, setTables] = useState<TableRow[][]>([]);
   const [fields, setFields] = useState<{ [key: string]: string[] }>({});
   const [selectedFields, setSelectedFields] = useState<{ [key: string]: string[] }>({});
   const [keyFields, setKeyFields] = useState<{ [key: string]: string }>({});
   const [mergedData, setMergedData] = useState<TableRow[] | null>(null);
-  const [sheets, setSheets] = useState<{ [key: string]: string[] }>({});
-  const [selectedSheets, setSelectedSheets] = useState<{ [key: string]: string }>({});
   const [mergedPreview, setMergedPreview] = useState<TableRow[] | null>(null);
   const [selectedFieldsOrder, setSelectedFieldsOrder] = useState<string[]>([]);
   const [groupingStructure, setGroupingStructure] = useState<{ [key: string]: { [key: string]: GroupInfo } }>({});
   const [columnToProcess, setColumnToProcess] = useState<string>('');
   const [secondColumnToProcess, setSecondColumnToProcess] = useState<string>('');
+  const [selectedColumns, setSelectedColumns] = useState<SelectedColumns>({
+    leftSheet: {
+      keyColumn: '',
+      dataColumns: []
+    },
+    rightSheet: {
+      keyColumn: '',
+      dataColumns: []
+    }
+  });
+  const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
+  const [sheetData, setSheetData] = useState<{ [key: string]: TableRow[] }>({});
 
   useEffect(() => {
     // Logging component lifecycle
     console.log('Component lifecycle:', {
       mergedData: !!mergedData,
       selectedFieldsOrder: !!selectedFieldsOrder,
-      files: files.length,
+      files: file ? 1 : 0,
       tables: tables.length,
     });
-  }, [mergedData, selectedFieldsOrder, files, tables]);
+  }, [mergedData, selectedFieldsOrder, file, tables]);
 
   useEffect(() => {
     const allSelectedFields: string[] = [];
 
     // Собираем все выбранные поля из обеих таблиц
-    files.forEach(file => {
+    if (file) {
       const fileFields = selectedFields[file.name] || [];
       allSelectedFields.push(...fileFields);
-    });
+    }
 
     // Обновляем selectedFieldsOrder
     setSelectedFieldsOrder(allSelectedFields);
-  }, [selectedFields, files]);
+  }, [selectedFields, file]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("File upload started");
-    const newFiles = Array.from(event.target.files || []);
-    console.log("New files:", newFiles.map(f => f.name));
+    const uploadedFile = event.target.files?.[0];
+    if (!uploadedFile) return;
 
-    for (const file of newFiles) {
-      console.log(`Processing file: ${file.name}`);
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        console.log(`File ${file.name} loaded`);
+    setFile(uploadedFile);
+    
+    // Добавляем индикатор загрузки
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetNames = workbook.SheetNames;
-        console.log(`Sheets in ${file.name}:`, sheetNames);
+        // Читаем только базовую информацию о листах
+        const workbook = XLSX.read(data, { 
+          type: 'array',
+          bookSheets: true, // Читаем только список листов
+          bookProps: false,
+          cellFormula: false,
+          cellHTML: false
+        });
+        
+        setSheets(workbook.SheetNames);
+        setSelectedSheets({ left: '', right: '' });
+        setSheetFields({});
+      } catch (error) {
+        console.error('Error loading file:', error);
+        alert('Error loading file. The file might be too large or corrupted.');
+      }
+    };
 
-        setFiles(prevFiles => [...prevFiles, file]);
-        setSheets(prevSheets => ({
-          ...prevSheets,
-          [file.name]: sheetNames
-        }));
-      };
-      reader.readAsArrayBuffer(file);
+    reader.readAsArrayBuffer(uploadedFile);
+  };
+
+  const handleSheetSelection = async (side: 'left' | 'right', sheetName: string) => {
+    if (!file) return;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(new Uint8Array(buffer), {
+        type: 'array',
+        sheets: [sheetName],
+        cellFormula: false,
+        cellHTML: false
+      });
+      
+      const worksheet = workbook.Sheets[sheetName];
+      const headerRowIndex = findHeaderRow(worksheet);
+      const headers = filterAndFormatHeaders(worksheet, headerRowIndex);
+
+      // Получаем данные листа
+      const jsonData = XLSX.utils.sheet_to_json<TableRow>(worksheet, {
+        range: { s: { r: headerRowIndex, c: 0 }, e: worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e : undefined }
+      });
+
+      setSelectedSheets(prev => ({
+        ...prev,
+        [side]: sheetName
+      }));
+      
+      setSheetFields(prev => ({
+        ...prev,
+        [sheetName]: headers
+      }));
+
+      // Сохраняем данные листа
+      setSheetData(prev => ({
+        ...prev,
+        [sheetName]: jsonData
+      }));
+    } catch (error) {
+      console.error('Error processing sheet:', error);
+      alert('Error processing sheet. Please try again.');
     }
   };
 
@@ -222,23 +370,14 @@ const App: React.FC = () => {
     return groupingInfo;
   };
 
-  const handleSheetSelection = (fileName: string, sheetName: string) => {
-    const file = files.find(f => f.name === fileName);
-    if (file) {
-      processSheet(file, sheetName);
-    } else {
-      console.error(`File not found: ${fileName}`);
-    }
-  };
-
-  const handleFieldSelection = (fileName: string, field: string) => {
-    setSelectedFields((prevFields) => {
-      const currentFields = prevFields[fileName] || [];
+  const handleFieldSelection = (sheetName: string, field: string) => {
+    setSelectedFields(prev => {
+      const currentFields = prev[sheetName] || [];
       const isFieldSelected = currentFields.includes(field);
       
       return {
-        ...prevFields,
-        [fileName]: isFieldSelected 
+        ...prev,
+        [sheetName]: isFieldSelected 
           ? currentFields.filter(f => f !== field)
           : [...currentFields, field]
       };
@@ -246,323 +385,168 @@ const App: React.FC = () => {
   };
 
   const handleKeyFieldSelection = (fileName: string, field: string) => {
-    setKeyFields((prevKeys) => ({
-      ...prevKeys,
-      [fileName]: prevKeys[fileName] === field ? '' : field
+    setKeyFields(prev => ({
+      ...prev,
+      [fileName]: field
     }));
   };
 
   const handleColumnToProcessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setColumnToProcess(prev => prev === value ? '' : value);
+    setColumnToProcess(e.target.value);
   };
 
   const handleSecondColumnToProcessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    setSecondColumnToProcess(prev => prev === value ? '' : value);
+    setSecondColumnToProcess(e.target.value);
   };
 
   const mergeTables = () => {
-    console.log('Starting merge process...');
+    console.log('Starting merge with mapping:', fieldMapping);
+    console.log('Selected sheets:', selectedSheets);
+    console.log('Sheet data:', sheetData);
 
-    if (tables.length < 2) {
-      alert("Please upload both tables to merge.");
+    if (!file || !selectedSheets.left || !selectedSheets.right) {
+      console.error('Missing file or sheets');
       return;
     }
 
-    const keyFieldSet = new Set(Object.values(keyFields));
-    if (keyFieldSet.size === 0) {
-      alert("Please select at least one key field for merging.");
+    if (!fieldMapping['PN']) {
+      console.error('Missing PN mapping');
+      alert('Please map the PN field before merging');
       return;
     }
 
-    const groupedFile = files[0];
-    const groupInfo = groupingStructure[groupedFile.name];
-    const maxLevel = groupInfo ? Math.max(...Object.values(groupInfo).map(info => info.level)) : 0;
+    try {
+      const mergedRows: TableRow[] = [];
+      const leftSheetData = sheetData[selectedSheets.left];
+      const rightSheetData = sheetData[selectedSheets.right];
 
-    const groupHeaders = Array.from({ length: maxLevel + 1 }, (_, i) => `Level_${i + 1}`);
+      if (!leftSheetData || !rightSheetData) return;
 
-    const dataHeaders: string[] = [];
-    files.forEach(file => {
-      const fileFields = fields[file.name].filter(field => selectedFields[file.name].includes(field));
-      dataHeaders.push(...fileFields);
-    });
+      // Получаем маппинг PN и дат
+      const pnMapping = fieldMapping['PN'] as { sourceSheet: string; sourceField: string };
+      const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
+      const pnField = pnMapping.sourceField.split(': ')[1];
 
-    // Add the extra column 'Note' at the end
-    const allHeaders = [...groupHeaders, 'LevelValue', ...dataHeaders, 'Note'];
+      // Создаем структуру для хранения уникальных PN
+      const pnData: { [key: string]: TableRow } = {};
 
-    const createBaseRow = (rowIndex: number): TableRow => {
-      const row: TableRow = {};
+      // Обрабатываем данные из обоих листов
+      [leftSheetData, rightSheetData].forEach((sheetData, index) => {
+        const currentSheet = index === 0 ? selectedSheets.left : selectedSheets.right;
 
-      if (groupInfo) {
-        groupHeaders.forEach((header) => {
-          row[header] = '';
-        });
+        sheetData.forEach(row => {
+          const pn = row[pnField];
+          if (!pn) return;
 
-        const groupData = groupInfo[(rowIndex + 2).toString()];
-        
-        if (groupData) {
-          const level = groupData.level;
-          if (level >= 0 && level < groupHeaders.length) {
-            const levelValue = groupData.level + 1;
-            row[groupHeaders[level]] = levelValue;
-            // Сохраняем существующую логику
-            const dots = '.'.repeat(levelValue + 1);
-            row['LevelValue'] = `${dots}${levelValue}`;
+          // Инициализируем запись для нового PN
+          if (!pnData[pn]) {
+            pnData[pn] = {
+              PO: '',
+              Line: '',
+              PN: pn,
+              'Delivery-Requested': '',
+              'Delivery-Expected': ''
+            };
+
+            // Добавляем колонки для всех дат
+            dateColumns.forEach(dateMapping => {
+              pnData[pn][`Qty ${dateMapping.date}`] = '';
+            });
           }
-        } else {
-          // ДОБАВЛЯЕМ новую логику только для случая отсутствия группировки
-          const firstTable = tables[0];
-          const keyField = keyFields[files[0].name];
-          if (firstTable && keyField && firstTable[rowIndex]) {
-            const keyValue = firstTable[rowIndex][keyField];
-            // Проверяем наличие значения в ключевом поле справа
-            if (keyValue && keyValue.toString().trim() !== '') {
-              // Добавляем только LevelValue = '..1' если нет группировки и есть значение в ключевом поле
-              row['LevelValue'] = '..1';
-            }
-          }
-        }
-      }
 
-      return row;
-    };
-
-    const createRowsWithMatches = (
-      firstTableRow: TableRow,
-      rowIndex: number
-    ): TableRow[] => {
-      const firstTableKeyField = keyFields[files[0].name];
-      const secondTable = tables[1];
-      const secondKeyField = keyFields[files[1].name];
-
-      const matchingRows = secondTable.filter((r: TableRow) =>
-        r[secondKeyField] === firstTableRow[firstTableKeyField]
-      );
-
-      if (matchingRows.length === 0) {
-        const baseRow = createBaseRow(rowIndex);
-
-        // Add data from the first table
-        fields[files[0].name].forEach(field => {
-          if (selectedFields[files[0].name].includes(field)) {
-            baseRow[field] = firstTableRow[field];
-          }
-        });
-
-        // Add empty values for fields from the second table
-        fields[files[1].name].forEach(field => {
-          if (selectedFields[files[1].name].includes(field)) {
-            baseRow[field] = '';
-          }
-        });
-
-        // Add visual marker in the 'Note' column
-        baseRow['Note'] = '******';
-
-        return [baseRow];
-      }
-
-      // Remove duplicates from matchingRows, excluding Level fields
-      const uniqueMatchingRowsMap = new Map<string, TableRow>();
-      matchingRows.forEach((row) => {
-        const fieldsToConsider = selectedFields[files[1].name].filter(field => !field.startsWith('Level'));
-        const key = fieldsToConsider.map(field => row[field]).join('|');
-        if (!uniqueMatchingRowsMap.has(key)) {
-          uniqueMatchingRowsMap.set(key, row);
-        }
-      });
-      const uniqueMatchingRows = Array.from(uniqueMatchingRowsMap.values());
-
-      return uniqueMatchingRows.map((matchingRow: TableRow, matchIndex: number) => {
-        const baseRow = createBaseRow(rowIndex);
-
-        // Add data from the first table only in the first matching row
-        if (matchIndex === 0) {
-          fields[files[0].name].forEach(field => {
-            if (selectedFields[files[0].name].includes(field)) {
-              baseRow[field] = firstTableRow[field];
+          // Заполняем значения обычных полей
+          Object.entries(fieldMapping).forEach(([field, mapping]) => {
+            if (!Array.isArray(mapping) && field !== 'Qty-by-date') {
+              if (mapping.sourceSheet === currentSheet) {
+                const sourceField = mapping.sourceField.split(': ')[1];
+                pnData[pn][field] = row[sourceField] || '';
+              }
             }
           });
-        } else {
-          fields[files[0].name].forEach(field => {
-            if (selectedFields[files[0].name].includes(field)) {
-              baseRow[field] = '';
+
+          // Заполняем значения для дат
+          dateColumns.forEach(dateMapping => {
+            if (dateMapping.sourceSheet === currentSheet) {
+              const sourceField = dateMapping.sourceField.split(': ')[1];
+              const qtyValue = row[sourceField];
+              if (qtyValue) {
+                // Если есть значение, создаем новую строку
+                const newRow = { ...pnData[pn] };
+                newRow[`Qty ${dateMapping.date}`] = qtyValue;
+                newRow['Delivery-Expected'] = dateMapping.date;
+                mergedRows.push(newRow);
+              }
             }
           });
-        }
-
-        // Add data from the second table
-        fields[files[1].name].forEach(field => {
-          if (selectedFields[files[1].name].includes(field)) {
-            baseRow[field] = matchingRow[field];
-          }
         });
-
-        // Leave 'Note' column empty for matched rows
-        baseRow['Note'] = '';
-
-        return baseRow;
       });
-    };
 
-    // Merge the tables
-    const merged = tables[0]
-      .flatMap((row: TableRow, index: number) =>
-        createRowsWithMatches(row, index)
-      );
-
-    // Process LevelValue
-    const processedData = merged.map((row: TableRow) => {
-      const entries = Object.entries(row);
-      const levelValueIndex = entries.findIndex(([key]) => key === 'LevelValue');
-
-      if (levelValueIndex !== -1) {
-        const nextFieldEntry = entries[levelValueIndex + 1];
-        if (nextFieldEntry) {
-          const [, nextFieldValue] = nextFieldEntry;
-          if (!nextFieldValue || nextFieldValue === '') {
-            entries[levelValueIndex][1] = '';
-          }
-        }
-      }
-
-      return Object.fromEntries(entries);
-    });
-
-    // Filter out rows where all data fields are empty (excluding Level fields)
-    const dataFields = allHeaders.filter(header => !header.startsWith('Level') && header !== 'Note');
-    const filteredData = processedData.filter(row => {
-      return dataFields.some(field => {
-        const value = row[field];
-        return value !== undefined && value !== null && value !== '';
+      // Сортируем результат по PN и дате
+      const sortedRows = mergedRows.sort((a, b) => {
+        const pnCompare = a.PN.localeCompare(b.PN);
+        if (pnCompare !== 0) return pnCompare;
+        return new Date(a['Delivery-Expected']).getTime() - new Date(b['Delivery-Expected']).getTime();
       });
-    });
 
-    // Добавляем обрабоку выбранного столбца для расширения диапазонов
-    if (columnToProcess || secondColumnToProcess) {
-      const processedDataWithExpandedRanges = filteredData.map((row) => {
-        // Обработка первой выбранной колонки
-    if (columnToProcess) {
-        const cellValue = row[columnToProcess];
-        if (typeof cellValue === 'string' && cellValue.includes('-')) {
-          row[columnToProcess] = expandRanges(cellValue);
-          }
-        }
-        
-        // Обработка второй выбранной коонки
-        if (secondColumnToProcess) {
-          const cellValue = row[secondColumnToProcess];
-          if (typeof cellValue === 'string' && cellValue.includes('-')) {
-            row[secondColumnToProcess] = expandRanges(cellValue);
-          }
-        }
-        return row;
-      });
-      setMergedData(processedDataWithExpandedRanges);
-      setMergedPreview(processedDataWithExpandedRanges.slice(0, 10));
-    } else {
-      setMergedData(filteredData);
-      setMergedPreview(filteredData.slice(0, 10));
+      console.log('Merged rows:', mergedRows);
+      setMergedData(mergedRows);
+      setMergedPreview(mergedRows.slice(0, 10));
+
+    } catch (error) {
+      console.error('Error during merge:', error);
+      alert('Error occurred during merge. Please check console for details.');
     }
-
-    setSelectedFieldsOrder(allHeaders);
-    console.log('Final headers:', allHeaders);
-    console.log('Final merged data:', mergedData);
   };
 
   const downloadMergedFile = async () => {
+    console.log('Starting download with data:', mergedData);
+
     if (!mergedData || mergedData.length === 0) {
-      alert('No data to download. Please merge tables first.');
+      console.error('No data to download');
       return;
     }
 
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Merged');
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Merged');
 
-    // Добавляем заголовки и данные
-    worksheet.columns = selectedFieldsOrder.map(header => ({
-      header,
-      key: header,
-      width: header.startsWith('Level_') ? 8.43 : // стандартная ширина для уровней
-             header === 'LevelValue' ? 8.43 :     // стандартная ширина для LevelValue
-             header === 'Note' ? 8.43 :           // стандартная ширина для Note
-             12,                                  // ширина для остальных колонок
-    }));
-    worksheet.addRows(mergedData);
+      // Получаем все колонки, включая динамические колонки с датами
+      const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
+      const columns = [
+        { header: 'PO', key: 'PO', width: 15 },
+        { header: 'Line', key: 'Line', width: 15 },
+        { header: 'PN', key: 'PN', width: 15 },
+        ...dateColumns.map(date => ({
+          header: `Qty ${date.date}`,
+          key: `Qty ${date.date}`,
+          width: 15
+        })),
+        { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
+        { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 }
+      ];
 
-    // Стилизация заголовков
-    worksheet.getRow(1).eachCell((cell) => {
-      cell.fill = {
+      worksheet.columns = columns;
+
+      // Добавляем данные
+      worksheet.addRows(mergedData);
+
+      // Стилизуем
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'B1F0F0' }  // Голубой цвет
+        fgColor: { argb: 'FFB1F0F0' }
       };
-      cell.font = {
-        bold: true,
-        size: 9,
-        color: { argb: '000000' }  // Черный цвет текста
-      };
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    });
 
-    // Устанавливаем размер шрифта для всех данных
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // Пропускаем заголовки
-
-      row.eachCell({ includeEmpty: true }, cell => {
-        cell.font = {
-          size: 9,
-          ...cell.font  // Сохраняем другие свойства шрифта если они есть
-        };
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       });
-
-      const rowData = mergedData[rowNumber - 2];
-      const hasLevelValue = rowData && rowData['LevelValue'];
-
-      // Если есть LevelValue, применяем стили ко всей строке
-      if (hasLevelValue) {
-        row.eachCell({ includeEmpty: true }, cell => {
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFFFC5' }
-          };
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            right: { style: 'thin' }
-          };
-          cell.font = {
-            size: 9,
-            ...cell.font
-          };
-        });
-      } else {
-        // Для строк без LevelValue добавляем только вертикальные границы
-        row.eachCell({ includeEmpty: true }, cell => {
-          cell.border = {
-            left: { style: 'thin' },
-            right: { style: 'thin' }
-          };
-          cell.font = {
-            size: 9,
-            ...cell.font
-          };
-        });
-      }
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { 
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-    });
-    saveAs(blob, 'merged_tables.xlsx');
+      saveAs(blob, 'merged_tables.xlsx');
+    } catch (error) {
+      console.error('Error during file download:', error);
+      alert('Error occurred during file download. Please check console for details.');
+    }
   };
 
   const expandRanges = (value: string): string => {
@@ -611,14 +595,15 @@ const App: React.FC = () => {
   // Добавим функцию для сброса состояния
   const handleReset = () => {
     // Очищаем все состояния
-    setFiles([]);
+    setFile(null);
     setTables([]);
     setFields({});
     setSelectedFields({});
     setKeyFields({});
     setMergedData(null);
-    setSheets({});
-    setSelectedSheets({});
+    setSheets([]);
+    setSelectedSheets({ left: '', right: '' });
+    setSheetFields({});
     setMergedPreview(null);
     setSelectedFieldsOrder([]);
     setGroupingStructure({});
@@ -629,292 +614,727 @@ const App: React.FC = () => {
     window.location.reload();
   };
 
-  return (
-    <div className="App">
-      <header className="App-header">
-        {/* Добавляем кнопку RESET */}
-        <div className="reset-container" style={{ 
-          width: '100%',
-          padding: '20px',
-          backgroundColor: '#015f60',
-          marginBottom: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '20px'
-        }}>
-          <button
-            onClick={handleReset}
-            style={{
-              padding: "12px 24px",
-              backgroundColor: "#dc3545",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              fontSize: "16px",
-              fontWeight: "bold",
-              cursor: "pointer",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-            }}
-          >
-            RESET
-          </button>
-          <span style={{
-            fontSize: "30px",
-            color: "#59fafc",
-            fontStyle: "Arial"
-          }}>
-            Start over, refresh process or clear memory
-          </span>
-        </div>
+  // Обновляем JSX для выбора листа
+  interface Sheet {
+    name: string;
+  }
 
-        <h1 className="text-3xl font-bold mb-6">Excel Table Merger</h1>
-        <div className="file-container-wrapper">
-          {[0, 1].map((index) => (
-            <div key={index} className="file-container">
-              <h2 className="text-xl font-semibold mb-4">File {index + 1}</h2>
-              <label htmlFor={`file-input-${index}`} className="mb-2 block">
-                Choose Excel file:
-              </label>
-              <Input
-                id={`file-input-${index}`}
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleFileUpload}
-                className="mb-4 w-full p-2 border border-gray-300 rounded"
-                style={{
-                  backgroundColor: "#59fafc",
-                  color: "black"
-                }}
-              />
-              {!files[index] && (
-                <p className="text-gray-500 mb-4">No file selected</p>
-              )}
-              {files[index] && sheets[files[index].name] && (
-                <div className="mb-4" style={{ width: "100%" }}>
-                  <select
-                    value={selectedSheets[files[index].name] || ""}
-                    onChange={(e) =>
-                      handleSheetSelection(files[index].name, e.target.value)
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px",
-                      border: "1px solid #ccc",
-                      borderRadius: "4px",
-                      backgroundColor: "#59fafc",
-                      color: "black",
-                      fontSize: "14px",
-                    }}
-                  >
-                    <option value="">Select a sheet</option>
-                    {sheets[files[index].name].map((sheet, sheetIndex) => (
-                      <option key={`${sheet}-${sheetIndex}`} value={sheet}>{sheet}</option>
-                    ))}
-                  </select>
+  const renderSheetSelector = (index: number) => (
+    <select
+      value={index === 0 ? selectedSheets.left : selectedSheets.right}
+      onChange={(e) =>
+        handleSheetSelection(index === 0 ? 'left' : 'right', e.target.value)
+      }
+      style={{
+        width: "100%",
+        padding: "8px",
+        border: "1px solid #ccc",
+        borderRadius: "4px",
+        backgroundColor: "#59fafc",
+        color: "black",
+        fontSize: "14px",
+      }}
+    >
+      <option value="">Select a sheet</option>
+      {sheets.map((sheetName, sheetIndex) => (
+        <option key={`${sheetName}-${sheetIndex}`} value={sheetName}>
+          {sheetName}
+        </option>
+      ))}
+    </select>
+  );
+
+  const findHeaderRow = (worksheet: XLSX.WorkSheet): number => {
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    let headerRowIndex = 0;
+    let maxTextCells = 0;
+    
+    // Проверяем певые 50 строк
+    const maxRow = Math.min(range.e.r, 50);
+    
+    for (let row = 0; row <= maxRow; row++) {
+      let textCellsCount = 0;
+      let hasText = false;
+      
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = worksheet[cellAddress];
+        
+        if (cell && typeof cell.v === 'string' && cell.v.trim() !== '') {
+          textCellsCount++;
+          if (/[a-zA-Z]/.test(cell.v)) {
+            hasText = true;
+          }
+        }
+      }
+      
+      if (textCellsCount > maxTextCells && hasText) {
+        maxTextCells = textCellsCount;
+        headerRowIndex = row;
+      }
+    }
+
+    return headerRowIndex;
+  };
+
+  const AvailableFields: React.FC<{
+    fields: string[];
+    sheetName: string;
+  }> = ({ fields, sheetName }) => {
+    const handleDragStart = (field: string) => (e: React.DragEvent) => {
+      e.dataTransfer.setData('text/plain', field);
+      e.dataTransfer.setData('source-sheet', sheetName);
+    };
+
+    return (
+      <div className="available-fields">
+        <h3>{sheetName}</h3>
+        {fields.map(field => (
+          <div
+            key={field}
+            draggable
+            className="field-item"
+            onDragStart={handleDragStart(field)}
+          >
+            {field}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Обновляем обработчик drop
+  const handleFieldDrop = (templateField: string, droppedField: string, sourceSheet: string) => {
+    if (templateField === 'Qty-by-date') {
+      // Извлекаем дату из названия поля
+      const [col, value] = droppedField.split(': ');
+      const date = formatDate(value);
+
+      setFieldMapping(prev => {
+        const existing = (prev[templateField] as DateColumnMapping[]) || [];
+        
+        // Проверяем, нет ли уже такой даты
+        if (existing.some(mapping => mapping.date === date)) {
+          return prev; // Пропускаем дубликаты
+        }
+
+        const newMapping = {
+          sourceSheet,
+          sourceField: droppedField,
+          date
+        };
+
+        // Добавляем новое маппинг и сортируем по дате
+        const updated = [...existing, newMapping].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+
+        return {
+          ...prev,
+          [templateField]: updated
+        };
+      });
+    } else {
+      setFieldMapping(prev => ({
+        ...prev,
+        [templateField]: { sourceSheet, sourceField: droppedField }
+      }));
+    }
+  };
+
+  // Обновляем компонент TemplateTable для корректной типизации маппинга
+  const TemplateTable: React.FC<{
+    columns: TemplateColumn[];
+    fieldMapping: FieldMapping;
+    onDrop: (columnId: string, field: string, sourceSheet: string) => void;
+  }> = ({ columns, fieldMapping, onDrop }) => {
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    const handleDragOver = (columnId: string) => (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDragOverColumn(columnId);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDragOverColumn(null);
+    };
+
+    const handleDrop = (columnId: string) => (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDragOverColumn(null);
+      const field = e.dataTransfer.getData('text/plain');
+      const sourceSheet = e.dataTransfer.getData('source-sheet');
+      onDrop(columnId, field, sourceSheet);
+    };
+
+    return (
+      <div className="template-table">
+        <div className="template-header">
+          {columns.map(column => (
+            <div
+              key={column.id}
+              className={`template-column 
+                ${column.isDateColumn ? 'date-column' : ''} 
+                ${column.isRequired ? 'required' : ''}
+                ${fieldMapping[column.id] ? 'mapped' : ''}
+                ${dragOverColumn === column.id ? 'dragover' : ''}`}
+              onDragOver={handleDragOver(column.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop(column.id)}
+            >
+              <div className="column-title">{column.title}</div>
+              {fieldMapping[column.id] && !Array.isArray(fieldMapping[column.id]) && (
+                <div className="mapped-field">
+                  {(fieldMapping[column.id] as { sourceSheet: string; sourceField: string }).sourceField}
                 </div>
               )}
-
-              {files[index] && selectedSheets[files[index].name] && (
-                <div className="file-content">
-                  <div className="fields-column">
-                    <h3 className="font-medium mb-2">Fields:</h3>
-                    {fields[files[index].name]?.map((field, fieldIndex) => (
-                      <div key={`${field}-${fieldIndex}`} className="field-item">
-                        {field}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="checkbox-column">
-                    <h3 className="font-medium mb-2">Select:</h3>
-                    {fields[files[index].name]?.map((field) => (
-                      <div key={field} className="checkbox-container">
-                        <input
-                          type="checkbox"
-                          id={`field-${files[index].name}-${field}`}
-                          className="checkbox"
-                          checked={selectedFields[files[index].name]?.includes(field)}
-                          onChange={() => handleFieldSelection(files[index].name, field)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="key-column">
-                    <h3 className="font-medium mb-2">Key field:</h3>
-                    <select
-                      value={keyFields[files[index].name] || ""}
-                      onChange={(e) =>
-                        handleKeyFieldSelection(
-                          files[index].name,
-                          e.target.value,
-                        )
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "8px",
-                        border: "1px solid #ccc",
-                        borderRadius: "4px",
-                        backgroundColor: "#59fafc",
-                        color: "black",
-                        fontSize: "14px",
-                      }}
-                    >
-                      <option value="">Select a key field</option>
-                      {fields[files[index].name]?.map((field) => (
-                        <option key={field} value={field}>
-                          {field}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              {column.id === 'Qty-by-date' && Array.isArray(fieldMapping[column.id]) && (
+                <div className="mapped-fields-list">
+                  {(fieldMapping[column.id] as DateColumnMapping[]).map((mapping, index) => (
+                    <div key={index} className="mapped-field">
+                      {mapping.sourceField}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           ))}
         </div>
-        <div className="controls-container">
-          {/* Первый селектор столбца */}
-          <div className="range-selector" style={{ marginBottom: '10px' }}>
-            <select
-              value={columnToProcess}
-              onChange={handleColumnToProcessChange}
-              style={{
-                width: "100%",
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-                backgroundColor: "#59fafc",
-                color: "black",
-                fontSize: "14px",
-              }}
-            >
-              <option value="">Select First Column to Expand Ranges</option>
-              {selectedFieldsOrder.map((field) => (
-                <option key={field} value={field}>
-                  {field}
-                </option>
-              ))}
-            </select>
-          </div>
+      </div>
+    );
+  };
 
-          {/* Второй селектор столбца */}
-          <div className="range-selector" style={{ marginBottom: '20px' }}>
-            <select
-              value={secondColumnToProcess}
-              onChange={handleSecondColumnToProcessChange}
-              style={{
-                width: "100%",
-                padding: "8px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-                backgroundColor: "#59fafc",
-                color: "black",
-                fontSize: "14px",
-              }}
-            >
-              <option value="">Select Second Column to Expand Ranges</option>
-              {selectedFieldsOrder.map((field) => (
-                <option key={field} value={field}>
-                  {field}
-                </option>
-              ))}
-            </select>
-          </div>
+  // Обновляем стили
+  const styles = `
+    body {
+      background-color: #1a1a1a;
+      color: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
 
-          {/* Кнопки управления */}
-          <div className="button-container">
-            <button
-              onClick={mergeTables}
-              disabled={files.length < 2}
-              style={{
-                padding: "8px 16px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-                backgroundColor: "#59fafc",
-                color: "black",
-                fontSize: "14px",
-                cursor: "pointer",
-                marginRight: "10px",
-              }}
-            >
-              Merge
-            </button>
-            <button
-              onClick={downloadMergedFile}
-              disabled={!mergedData}
-              style={{
-                padding: "8px 16px",
-                border: "1px solid #ccc",
-                borderRadius: "4px",
-                backgroundColor: "#59fafc",
-                color: "black",
-                fontSize: "14px",
-                cursor: "pointer",
-              }}
-            >
-              Download
-            </button>
+    .app-container {
+      background-color: #2d2d2d;
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .app-title {
+      color: #59fafc;
+      font-size: 28px;
+      margin: 20px 0 40px;
+      text-transform: capitalize;
+      letter-spacing: 1px;
+    }
+
+    .sheets-layout {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      gap: 20px;
+      margin: 20px 0;
+    }
+
+    .sheet-panel {
+      flex: 1;
+      background-color: #383838;
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    .sheet-selector select {
+      width: 100%;
+      padding: 10px;
+      background-color: #2d2d2d;
+      color: #ffffff;
+      border: 1px solid #4a4a4a;
+      border-radius: 4px;
+    }
+
+    .fields-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .field-item {
+      background-color: #4a4a4a;
+      color: #ffffff;
+      padding: 8px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      cursor: move;
+    }
+
+    .template-container {
+      width: 100%;
+      background-color: #383838;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 30px;
+    }
+
+    .template-table {
+      width: 100%;
+      margin-top: 20px;
+    }
+
+    .template-header {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 15px;
+      padding: 10px;
+    }
+
+    .template-column {
+      background-color: #2d2d2d;
+      border: 2px dashed #4a4a4a;
+      border-radius: 6px;
+      padding: 15px;
+      min-height: 100px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+    }
+
+    .template-column.dragover {
+      background-color: #2d4a6d;
+      border-color: #59fafc;
+    }
+
+    .template-column.mapped {
+      background-color: #2d4a3e;
+      border-color: #4caf50;
+      border-style: solid;
+    }
+
+    .template-column.required {
+      border-color: #ff4444;
+    }
+
+    .column-title {
+      font-weight: bold;
+      color: #59fafc;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .mapped-field {
+      background-color: #383838;
+      color: #ffffff;
+      padding: 8px;
+      border-radius: 4px;
+      width: 90%;
+      text-align: center;
+      font-size: 0.9em;
+      word-break: break-word;
+    }
+
+    .actions-container {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 30px;
+    }
+
+    .merge-button, .download-button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .merge-button {
+      background-color: #2196f3;
+      color: white;
+    }
+
+    .download-button {
+      background-color: #4caf50;
+      color: white;
+    }
+
+    .merge-button:disabled, .download-button:disabled {
+      background-color: #4a4a4a;
+      color: #666;
+      cursor: not-allowed;
+    }
+
+    .merge-button:hover:not(:disabled), .download-button:hover:not(:disabled) {
+      filter: brightness(1.2);
+      transform: translateY(-2px);
+    }
+  `;
+
+  const getSheetHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    const headers: { col: string; value: string }[] = [];
+    
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        let value = cell.v.toString();
+        
+        // Проверяем, является ли значение числом (Excel serial number)
+        if (typeof cell.v === 'number' && cell.v > 1) {
+          try {
+            const date = new Date((cell.v - 25569) * 86400 * 1000);
+            if (!isNaN(date.getTime())) {
+              value = date.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: '2-digit'
+              });
+            }
+          } catch (e) {
+            console.error('Error formatting date:', e);
+          }
+        }
+        
+        headers.push({
+          col: XLSX.utils.encode_col(col),
+          value: value
+        });
+      }
+    }
+    
+    return headers.map(h => `${h.col}: ${h.value}`);
+  };
+
+  const filterAndFormatHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    const headers: { col: string; value: string }[] = [];
+    
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+      const cell = worksheet[cellAddress];
+      
+      if (cell && cell.v) {
+        let value = cell.v.toString();
+        let shouldShow = true;
+        
+        // Проверяем, является ли значение датой
+        if (typeof cell.v === 'number' && cell.v > 1) {
+          try {
+            const date = new Date((cell.v - 25569) * 86400 * 1000);
+            if (!isNaN(date.getTime())) {
+              // Форматируем дату
+              value = date.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: '2-digit'
+              });
+              
+              // Скрываем даты до 2024 года
+              if (date.getFullYear() < 2024) {
+                shouldShow = false;
+              }
+            }
+          } catch (e) {
+            console.error('Error formatting date:', e);
+          }
+        }
+        
+        if (shouldShow) {
+          headers.push({
+            col: XLSX.utils.encode_col(col),
+            value: value
+          });
+        }
+      }
+    }
+    
+    return headers.map(h => `${h.col}: ${h.value}`);
+  };
+
+  // Добавляем useEffect для вставки стилей
+  useEffect(() => {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = styles;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
+  const darkThemeStyles = `
+    body {
+      background-color: #1a1a1a;
+      color: #ffffff;
+    }
+
+    .app-container {
+      background-color: #2d2d2d;
+    }
+
+    .sheet-panel {
+      background-color: #383838;
+    }
+
+    .sheet-selector select {
+      background-color: #4a4a4a;
+      color: #ffffff;
+      border-color: #666;
+    }
+
+    .fields-container {
+      background-color: #383838;
+    }
+
+    .field-item {
+      background-color: #4a4a4a;
+      color: #ffffff;
+      border-color: #666;
+    }
+
+    .field-item:hover {
+      background-color: #5a5a5a;
+    }
+
+    .template-container {
+      background-color: #383838;
+    }
+
+    .template-column {
+      background-color: #4a4a4a;
+      border-color: #666;
+      color: #ffffff;
+    }
+
+    .template-column.mapped {
+      background-color: #2d4a3e;
+      border-color: #4caf50;
+    }
+
+    .template-column.dragover {
+      background-color: #2d4a6d;
+      border-color: #2196f3;
+    }
+
+    .mapped-field {
+      background-color: #2d4a3e;
+      color: #98c99a;
+    }
+
+    .merge-button, .download-button {
+      background-color: #4a4a4a;
+      color: #ffffff;
+      border-color: #666;
+    }
+
+    .merge-button:hover, .download-button:hover {
+      background-color: #5a5a5a;
+    }
+
+    .merge-button:disabled, .download-button:disabled {
+      background-color: #333;
+      color: #666;
+    }
+  `;
+
+  const MergedPreview: React.FC<{ data: TableRow[] }> = ({ data }) => {
+    if (!data || data.length === 0) return null;
+
+    const columns = Object.keys(data[0]);
+
+    return (
+      <div className="preview-container">
+        <h3>Preview (first 10 rows)</h3>
+        <div className="preview-table">
+          <div className="preview-header">
+            {columns.map(col => (
+              <div key={col} className="preview-cell header-cell">
+                {col.startsWith('Qty ') ? col : col}
+              </div>
+            ))}
+          </div>
+          <div className="preview-body">
+            {data.map((row, rowIndex) => (
+              <div key={rowIndex} className="preview-row">
+                {columns.map(col => (
+                  <div key={`${rowIndex}-${col}`} className="preview-cell">
+                    {col.includes('date') || col.startsWith('Qty ') ? formatDate(row[col]) : row[col]}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
-      </header>
+      </div>
+    );
+  };
 
-      {mergedPreview && mergedPreview.length > 0 && (
-        <div className="merged-preview" style={{ margin: "20px 0" }}>
-          <h2 className="text-xl font-semibold mb-4">Merged Data Preview</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "14px",
-              }}
-            >
-              <thead>
-                <tr>
-                  {selectedFieldsOrder.map((field: string) => (
-                    <th
+  const previewStyles = `
+    .preview-container {
+      margin-top: 20px;
+      padding: 20px;
+      background-color: #383838;
+      border-radius: 8px;
+    }
+
+    .preview-table {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .preview-header {
+      display: flex;
+      background-color: #2d2d2d;
+      padding: 10px 0;
+    }
+
+    .preview-row {
+      display: flex;
+      border-bottom: 1px solid #4a4a4a;
+    }
+
+    .preview-cell {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px;
+      text-align: left;
+      color: #ffffff;
+    }
+
+    .header-cell {
+      font-weight: bold;
+      color: #59fafc;
+    }
+  `;
+
+  return (
+    <div className="app-container">
+      <div className="reset-container">
+        <button onClick={handleReset}>RESET</button>
+      </div>
+
+      <h1 className="app-title">Manager Excel Report</h1>
+
+      <div className="file-input-container">
+        <Input
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={handleFileUpload}
+          className="file-input"
+        />
+      </div>
+
+      {file && (
+        <div className="sheets-layout">
+          {/* Левая панель */}
+          <div className="sheet-panel">
+            <div className="sheet-selector">
+              <h3>First Sheet</h3>
+              <select
+                value={selectedSheets.left}
+                onChange={(e) => handleSheetSelection('left', e.target.value)}
+              >
+                <option value="">Select sheet</option>
+                {sheets.map(sheet => (
+                  <option key={sheet} value={sheet}>{sheet}</option>
+                ))}
+              </select>
+            </div>
+            {selectedSheets.left && (
+              <div className="fields-container">
+                <div className="fields-grid">
+                  {sheetFields[selectedSheets.left]?.map(field => (
+                    <div
                       key={field}
-                      style={{
-                        padding: "12px 8px",
-                        borderBottom: "2px solid #ddd",
-                        textAlign: "left",
-                        backgroundColor: field === 'Note' ? '#f8d7da' : 'transparent',
-                        color: field === 'Note' ? '#721c24' : 'inherit',
+                      draggable
+                      className="field-item"
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', field);
+                        e.dataTransfer.setData('source-sheet', selectedSheets.left);
                       }}
                     >
                       {field}
-                    </th>
+                    </div>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {mergedPreview.map((row, rowIndex) => (
-                  <tr key={rowIndex}>
-                    {selectedFieldsOrder.map(
-                      (field: string, cellIndex: number) => (
-                        <td
-                          key={`${rowIndex}-${cellIndex}`}
-                          style={{
-                            padding: "8px",
-                            borderBottom: "1px solid #ddd",
-                            backgroundColor: field === 'Note' && row['Note'] ? '#f8d7da' : 'transparent',
-                            color: field === 'Note' && row['Note'] ? '#721c24' : 'inherit',
-                          }}
-                        >
-                          {row[field] !== undefined ? String(row[field]) : ""}
-                        </td>
-                      ),
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </div>
+              </div>
+            )}
           </div>
-          {mergedData && mergedData.length > 10 && (
-            <p style={{ marginTop: "10px", color: "#666" }}>
-              Showing first 10 of {mergedData.length} rows
-            </p>
-          )}
+
+          {/* Правая панель */}
+          <div className="sheet-panel">
+            <div className="sheet-selector">
+              <h3>Second Sheet</h3>
+              <select
+                value={selectedSheets.right}
+                onChange={(e) => handleSheetSelection('right', e.target.value)}
+              >
+                <option value="">Select sheet</option>
+                {sheets.map(sheet => (
+                  <option key={sheet} value={sheet}>{sheet}</option>
+                ))}
+              </select>
+            </div>
+            {selectedSheets.right && (
+              <div className="fields-container">
+                <div className="fields-grid">
+                  {sheetFields[selectedSheets.right]?.map(field => (
+                    <div
+                      key={field}
+                      draggable
+                      className="field-item"
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', field);
+                        e.dataTransfer.setData('source-sheet', selectedSheets.right);
+                      }}
+                    >
+                      {field}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+      )}
+
+      {selectedSheets.left && selectedSheets.right && (
+        <div className="template-container">
+          <h3>Target Table Template</h3>
+          <TemplateTable 
+            columns={templateColumns}
+            fieldMapping={fieldMapping}
+            onDrop={handleFieldDrop}
+          />
+          <div className="actions-container">
+            <button 
+              onClick={mergeTables}
+              disabled={!fieldMapping['PN']}
+              className="merge-button"
+            >
+              Merge Tables
+            </button>
+            <button
+              onClick={downloadMergedFile}
+              disabled={!mergedData || mergedData.length === 0}
+              className="download-button"
+            >
+              Download Result
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mergedPreview && (
+        <MergedPreview data={mergedPreview} />
       )}
     </div>
   );
