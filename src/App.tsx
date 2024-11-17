@@ -415,7 +415,6 @@ const App: React.FC = () => {
       // Создаем индекс для быстрого поиска соответствующих записей
       const rightSheetIndex: { [key: string]: any } = {};
       rightSheetData.forEach(row => {
-        // Используем поле מקט как ключ для SO таблицы
         const pn = row['מקט'];
         if (pn) {
           rightSheetIndex[pn] = row;
@@ -424,7 +423,6 @@ const App: React.FC = () => {
 
       // Обрабатываем данные из Pro таблицы
       leftSheetData.forEach(row => {
-        // Используем пое ALE PN как ключ для Pro таблицы
         const pn = row['ALE PN'];
         if (!pn) return;
 
@@ -435,20 +433,17 @@ const App: React.FC = () => {
         const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
+            // Получаем значение количества из колонки
             const qtyField = dateMapping.sourceField.split(': ')[1];
             const qtyValue = row[qtyField];
               
             if (qtyValue) {
-              // Форматируем Delivery-Requested как дату
-              const deliveryRequested = rightRow ? formatDate(rightRow['תאריך מובטח']) : '';
-
-              // Создаем новую строку
               const newRow: TableRow = {
                 PO: rightRow ? rightRow['מס הזמנה'] : '',
                 Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
                 PN: pn,
                 [`Qty ${dateMapping.date}`]: qtyValue,
-                'Delivery-Requested': deliveryRequested,
+                'Delivery-Requested': rightRow ? rightRow['תאריך מובטח'] : '',
                 'Delivery-Expected': dateMapping.date
               };
                 
@@ -465,8 +460,6 @@ const App: React.FC = () => {
         return new Date(a['Delivery-Expected']).getTime() - new Date(b['Delivery-Expected']).getTime();
       });
 
-      console.log('Field mappings:', fieldMapping);
-      console.log('Merged rows:', mergedRows);
       setMergedData(sortedRows);
       setMergedPreview(sortedRows.slice(0, 10));
 
