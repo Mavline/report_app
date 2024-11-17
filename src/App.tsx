@@ -433,17 +433,25 @@ const App: React.FC = () => {
         const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
-            // Получаем значение количества из колонки
             const qtyField = dateMapping.sourceField.split(': ')[1];
             const qtyValue = row[qtyField];
               
             if (qtyValue) {
+              // Преобразуем Excel serial number в дату
+              const deliveryRequested = rightRow ? 
+                new Date((rightRow['תאריך מובטח'] - 25569) * 86400 * 1000)
+                  .toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: '2-digit'
+                  }) : '';
+
               const newRow: TableRow = {
                 PO: rightRow ? rightRow['מס הזמנה'] : '',
                 Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
                 PN: pn,
                 [`Qty ${dateMapping.date}`]: qtyValue,
-                'Delivery-Requested': rightRow ? rightRow['תאריך מובטח'] : '',
+                'Delivery-Requested': deliveryRequested,
                 'Delivery-Expected': dateMapping.date
               };
                 
