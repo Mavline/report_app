@@ -400,18 +400,8 @@ const App: React.FC = () => {
   };
 
   const mergeTables = () => {
-    console.log('Starting merge with mapping:', fieldMapping);
-    console.log('Selected sheets:', selectedSheets);
-    console.log('Sheet data:', sheetData);
-
     if (!file || !selectedSheets.left || !selectedSheets.right) {
       console.error('Missing file or sheets');
-      return;
-    }
-
-    if (!fieldMapping['PN']) {
-      console.error('Missing PN mapping');
-      alert('Please map the PN field before merging');
       return;
     }
 
@@ -422,62 +412,49 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
-      // Получаем маппинг PN и дат
-      const pnMapping = fieldMapping['PN'] as { sourceSheet: string; sourceField: string };
-      const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
-      const pnField = pnMapping.sourceField.split(': ')[1];
+      // Создаем индекс для быстрого поиска соответствующих записей
+      const rightSheetIndex: { [key: string]: any } = {};
+      rightSheetData.forEach(row => {
+        // Используем поле מקט как ключ для SO таблицы
+        const pn = row['מקט'];
+        if (pn) {
+          rightSheetIndex[pn] = row;
+        }
+      });
 
-      // Создаем структуру для хранения уникальных PN
-      const pnData: { [key: string]: TableRow } = {};
+      // Обрабатываем данные из Pro таблицы
+      leftSheetData.forEach(row => {
+        // Используем пое ALE PN как ключ для Pro таблицы
+        const pn = row['ALE PN'];
+        if (!pn) return;
 
-      // Обрабатываем данные из обоих листов
-      [leftSheetData, rightSheetData].forEach((sheetData, index) => {
-        const currentSheet = index === 0 ? selectedSheets.left : selectedSheets.right;
+        // Находим соответствующую запись из SO таблицы
+        const rightRow = rightSheetIndex[pn];
 
-        sheetData.forEach(row => {
-          const pn = row[pnField];
-          if (!pn) return;
+        // Для каждой даты создаем отдельную строку
+        const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
+        dateColumns.forEach(dateMapping => {
+          if (dateMapping.sourceSheet === selectedSheets.left) {
+            const qtyField = dateMapping.sourceField.split(': ')[1];
+            const qtyValue = row[qtyField];
+              
+            if (qtyValue) {
+              // Форматируем Delivery-Requested как дату
+              const deliveryRequested = rightRow ? formatDate(rightRow['תאריך מובטח']) : '';
 
-          // Инициализируем запись для нового PN
-          if (!pnData[pn]) {
-            pnData[pn] = {
-              PO: '',
-              Line: '',
-              PN: pn,
-              'Delivery-Requested': '',
-              'Delivery-Expected': ''
-            };
-
-            // Добавляем колонки для всех дат
-            dateColumns.forEach(dateMapping => {
-              pnData[pn][`Qty ${dateMapping.date}`] = '';
-            });
+              // Создаем новую строку
+              const newRow: TableRow = {
+                PO: rightRow ? rightRow['מס הזמנה'] : '',
+                Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
+                PN: pn,
+                [`Qty ${dateMapping.date}`]: qtyValue,
+                'Delivery-Requested': deliveryRequested,
+                'Delivery-Expected': dateMapping.date
+              };
+                
+              mergedRows.push(newRow);
+            }
           }
-
-          // Заполняем значения обычных полей
-          Object.entries(fieldMapping).forEach(([field, mapping]) => {
-            if (!Array.isArray(mapping) && field !== 'Qty-by-date') {
-              if (mapping.sourceSheet === currentSheet) {
-                const sourceField = mapping.sourceField.split(': ')[1];
-                pnData[pn][field] = row[sourceField] || '';
-              }
-            }
-          });
-
-          // Заполняем значения для дат
-          dateColumns.forEach(dateMapping => {
-            if (dateMapping.sourceSheet === currentSheet) {
-              const sourceField = dateMapping.sourceField.split(': ')[1];
-              const qtyValue = row[sourceField];
-              if (qtyValue) {
-                // Если есть значение, создаем новую строку
-                const newRow = { ...pnData[pn] };
-                newRow[`Qty ${dateMapping.date}`] = qtyValue;
-                newRow['Delivery-Expected'] = dateMapping.date;
-                mergedRows.push(newRow);
-              }
-            }
-          });
         });
       });
 
@@ -488,9 +465,10 @@ const App: React.FC = () => {
         return new Date(a['Delivery-Expected']).getTime() - new Date(b['Delivery-Expected']).getTime();
       });
 
+      console.log('Field mappings:', fieldMapping);
       console.log('Merged rows:', mergedRows);
-      setMergedData(mergedRows);
-      setMergedPreview(mergedRows.slice(0, 10));
+      setMergedData(sortedRows);
+      setMergedPreview(sortedRows.slice(0, 10));
 
     } catch (error) {
       console.error('Error during merge:', error);
@@ -742,7 +720,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Обновляем компонент TemplateTable для корректной типизации маппинга
+  // Обновляем компонент TemplateTable для корректной типизаци маппинга
   const TemplateTable: React.FC<{
     columns: TemplateColumn[];
     fieldMapping: FieldMapping;
@@ -1157,7 +1135,7 @@ const App: React.FC = () => {
           <div className="preview-header">
             {columns.map(col => (
               <div key={col} className="preview-cell header-cell">
-                {col.startsWith('Qty ') ? col : col}
+                {col}
               </div>
             ))}
           </div>
@@ -1166,7 +1144,7 @@ const App: React.FC = () => {
               <div key={rowIndex} className="preview-row">
                 {columns.map(col => (
                   <div key={`${rowIndex}-${col}`} className="preview-cell">
-                    {col.includes('date') || col.startsWith('Qty ') ? formatDate(row[col]) : row[col]}
+                    {row[col]}
                   </div>
                 ))}
               </div>
@@ -1183,30 +1161,43 @@ const App: React.FC = () => {
       padding: 20px;
       background-color: #383838;
       border-radius: 8px;
+      overflow-x: auto;
     }
 
     .preview-table {
       width: 100%;
-      overflow-x: auto;
+      min-width: 800px;
+      border-collapse: collapse;
     }
 
     .preview-header {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
       background-color: #2d2d2d;
       padding: 10px 0;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .preview-body {
+      display: flex;
+      flex-direction: column;
     }
 
     .preview-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
       border-bottom: 1px solid #4a4a4a;
     }
 
     .preview-cell {
-      flex: 1;
-      min-width: 120px;
       padding: 8px;
       text-align: left;
-      color: #ffffff;
+      min-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .header-cell {
@@ -1214,6 +1205,17 @@ const App: React.FC = () => {
       color: #59fafc;
     }
   `;
+
+  // Добавляем стили в useEffect
+  useEffect(() => {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = styles + previewStyles; // Добавляем стили превью
+    document.head.appendChild(styleElement);
+
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
 
   return (
     <div className="app-container">
