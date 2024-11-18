@@ -50,7 +50,8 @@ const templateColumns: TemplateColumn[] = [
   { id: 'PN', title: 'PN', isRequired: true },
   { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
   { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
-  { id: 'Delivery-Expected', title: 'Delivery-Expected', isDateColumn: true }
+  { id: 'Delivery-Expected', title: 'Delivery-Expected', isDateColumn: true },
+  { id: 'Balance-to-Supply', title: 'Balance to Supply' }
 ];
 
 // Обновляем интерфейс для маппинга полей с датами
@@ -412,12 +413,15 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
-      // Создаем индекс для быстрого поиска соответствующих записей
-      const rightSheetIndex: { [key: string]: any } = {};
+      // Создаем индекс, хранящий массив строк для каждого PN
+      const rightSheetIndex: { [key: string]: any[] } = {};
       rightSheetData.forEach(row => {
         const pn = row['מקט'];
         if (pn) {
-          rightSheetIndex[pn] = row;
+          if (!rightSheetIndex[pn]) {
+            rightSheetIndex[pn] = [];
+          }
+          rightSheetIndex[pn].push(row);
         }
       });
 
@@ -426,36 +430,42 @@ const App: React.FC = () => {
         const pn = row['ALE PN'];
         if (!pn) return;
 
-        // Находим соответствующую запись из SO таблицы
-        const rightRow = rightSheetIndex[pn];
+        // Получаем массив соответствующих записей из SO таблицы
+        const rightRows = rightSheetIndex[pn] || [];
 
-        // Для каждой даты создаем отдельную строку
+        // Для каждой даты создаем строки
         const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
+
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
             const qtyField = dateMapping.sourceField.split(': ')[1];
             const qtyValue = row[qtyField];
               
-            if (qtyValue) {
-              // Преобразуем Excel serial number в дату
-              const deliveryRequested = rightRow ? 
-                new Date((rightRow['תאריך מובטח'] - 25569) * 86400 * 1000)
-                  .toLocaleDateString('en-GB', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: '2-digit'
-                  }) : '';
+            if (qtyValue) {  // Создаем строки только если есть значение в колонке с датой
+              rightRows.forEach(rightRow => {
+                const balance = rightRow['יתרה לאספקה'];
+                if (balance && balance !== 0) {
+                  const deliveryRequested = rightRow ? 
+                    new Date((rightRow['תאריך מובטח'] - 25569) * 86400 * 1000)
+                      .toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: '2-digit'
+                      }) : '';
 
-              const newRow: TableRow = {
-                PO: rightRow ? rightRow['מס הזמנה'] : '',
-                Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
-                PN: pn,
-                [`Qty ${dateMapping.date}`]: qtyValue,
-                'Delivery-Requested': deliveryRequested,
-                'Delivery-Expected': dateMapping.date
-              };
-                
-              mergedRows.push(newRow);
+                  const newRow: TableRow = {
+                    PO: rightRow ? rightRow['מס הזמנה'] : '',
+                    Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
+                    PN: pn,
+                    [`Qty ${dateMapping.date}`]: qtyValue,
+                    'Delivery-Requested': deliveryRequested,
+                    'Delivery-Expected': dateMapping.date,
+                    'Balance to Supply': balance
+                  };
+                  
+                  mergedRows.push(newRow);
+                }
+              });
             }
           }
         });
@@ -501,7 +511,8 @@ const App: React.FC = () => {
           width: 15
         })),
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
-        { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 }
+        { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 },
+        { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 }
       ];
 
       worksheet.columns = columns;
