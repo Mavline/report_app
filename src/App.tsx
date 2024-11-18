@@ -50,7 +50,6 @@ const templateColumns: TemplateColumn[] = [
   { id: 'PN', title: 'PN', isRequired: true },
   { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
   { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
-  { id: 'Delivery-Expected', title: 'Delivery-Expected', isDateColumn: true },
   { id: 'Balance-to-Supply', title: 'Balance to Supply' }
 ];
 
@@ -207,11 +206,6 @@ const App: React.FC = () => {
       const headerRowIndex = findHeaderRow(worksheet);
       const headers = filterAndFormatHeaders(worksheet, headerRowIndex);
 
-      // Получаем данные листа
-      const jsonData = XLSX.utils.sheet_to_json<TableRow>(worksheet, {
-        range: { s: { r: headerRowIndex, c: 0 }, e: worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e : undefined }
-      });
-
       setSelectedSheets(prev => ({
         ...prev,
         [side]: sheetName
@@ -222,11 +216,20 @@ const App: React.FC = () => {
         [sheetName]: headers
       }));
 
+      // Добавляем принудительное обновление
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 0);
+
       // Сохраняем данные листа
+      const jsonData = XLSX.utils.sheet_to_json<TableRow>(worksheet, {
+        range: { s: { r: headerRowIndex, c: 0 }, e: worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e : undefined }
+      });
       setSheetData(prev => ({
         ...prev,
         [sheetName]: jsonData
       }));
+
     } catch (error) {
       console.error('Error processing sheet:', error);
       alert('Error processing sheet. Please try again.');
@@ -458,6 +461,7 @@ const App: React.FC = () => {
                     Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
                     PN: pn,
                     [`Qty ${dateMapping.date}`]: qtyValue,
+                    'QTY by dates': qtyValue,  // Просто копируем значение из текущей колонки с датой
                     'Delivery-Requested': deliveryRequested,
                     'Delivery-Expected': dateMapping.date,
                     'Balance to Supply': balance
@@ -499,26 +503,31 @@ const App: React.FC = () => {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Merged');
 
-      // Получаем все колонки, включая динамические колонки с датами
-      const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
-      const columns = [
+      // Определяем только видимые колонки для результата
+      const visibleColumns = [
         { header: 'PO', key: 'PO', width: 15 },
         { header: 'Line', key: 'Line', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
-        ...dateColumns.map(date => ({
-          header: `Qty ${date.date}`,
-          key: `Qty ${date.date}`,
-          width: 15
-        })),
+        { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
         { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 },
         { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 }
       ];
 
-      worksheet.columns = columns;
+      worksheet.columns = visibleColumns;
 
-      // Добавляем данные
-      worksheet.addRows(mergedData);
+      // Добавляем данные, выбирая только нужные колонки
+      const visibleData = mergedData.map(row => ({
+        PO: row.PO,
+        Line: row.Line,
+        PN: row.PN,
+        'QTY by dates': row['QTY by dates'],
+        'Delivery-Requested': row['Delivery-Requested'],
+        'Delivery-Expected': row['Delivery-Expected'],
+        'Balance to Supply': row['Balance to Supply']
+      }));
+
+      worksheet.addRows(visibleData);
 
       // Стилизуем
       worksheet.getRow(1).font = { bold: true };
@@ -705,7 +714,7 @@ const App: React.FC = () => {
         
         // Проверяем, нет ли уже такой даты
         if (existing.some(mapping => mapping.date === date)) {
-          return prev; // Пропускаем дубликаты
+          return prev; // Пропускаем дублкаты
         }
 
         const newMapping = {
@@ -802,6 +811,9 @@ const App: React.FC = () => {
       color: #ffffff;
       margin: 0;
       padding: 0;
+      overflow-y: auto;
+      position: relative;
+      min-height: 100vh;
     }
 
     .app-container {
@@ -964,6 +976,22 @@ const App: React.FC = () => {
       filter: brightness(1.2);
       transform: translateY(-2px);
     }
+
+    .sheet-panel {
+      position: relative;
+      z-index: 2;
+    }
+
+    .sheet-selector {
+      position: relative;
+      z-index: 1000;
+    }
+
+    .sheet-selector select {
+      width: 100%;
+      position: relative;
+      z-index: 1000;
+    }
   `;
 
   const getSheetHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
@@ -1020,15 +1048,14 @@ const App: React.FC = () => {
           try {
             const date = new Date((cell.v - 25569) * 86400 * 1000);
             if (!isNaN(date.getTime())) {
-              // Форматируем дату
               value = date.toLocaleDateString('en-GB', {
                 day: '2-digit',
                 month: 'short',
                 year: '2-digit'
               });
               
-              // Скрываем даты до 2024 года
-              if (date.getFullYear() < 2024) {
+              // Скрываем даты до авгуса 2024 года
+              if (date < new Date('2024-08-01')) {
                 shouldShow = false;
               }
             }
@@ -1138,14 +1165,23 @@ const App: React.FC = () => {
   const MergedPreview: React.FC<{ data: TableRow[] }> = ({ data }) => {
     if (!data || data.length === 0) return null;
 
-    const columns = Object.keys(data[0]);
+    // Определяем нужные колонки в правильном порядке
+    const displayColumns = [
+      'PO',
+      'Line',
+      'PN',
+      'QTY by dates',
+      'Delivery-Requested',
+      'Delivery-Expected',
+      'Balance to Supply'
+    ];
 
     return (
       <div className="preview-container">
         <h3>Preview (first 10 rows)</h3>
         <div className="preview-table">
           <div className="preview-header">
-            {columns.map(col => (
+            {displayColumns.map(col => (
               <div key={col} className="preview-cell header-cell">
                 {col}
               </div>
@@ -1154,7 +1190,7 @@ const App: React.FC = () => {
           <div className="preview-body">
             {data.map((row, rowIndex) => (
               <div key={rowIndex} className="preview-row">
-                {columns.map(col => (
+                {displayColumns.map(col => (
                   <div key={`${rowIndex}-${col}`} className="preview-cell">
                     {row[col]}
                   </div>
@@ -1184,7 +1220,7 @@ const App: React.FC = () => {
 
     .preview-header {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr); // Изменено на 7 колонок
       background-color: #2d2d2d;
       padding: 10px 0;
       position: sticky;
@@ -1192,14 +1228,9 @@ const App: React.FC = () => {
       z-index: 1;
     }
 
-    .preview-body {
-      display: flex;
-      flex-direction: column;
-    }
-
     .preview-row {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr); // Изменено на 7 колонок
       border-bottom: 1px solid #4a4a4a;
     }
 
