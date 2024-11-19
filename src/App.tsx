@@ -503,10 +503,13 @@ const App: React.FC = () => {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Merged');
 
-      // Определяем только видимые колонки для результата
+      // Обновляем список колонок, добавляя новые фиксированные колонки
       const visibleColumns = [
+        { header: 'Supplier', key: 'Supplier', width: 15 },
+        { header: 'Receiver', key: 'Receiver', width: 15 },
         { header: 'PO', key: 'PO', width: 15 },
         { header: 'Line', key: 'Line', width: 15 },
+        { header: 'Type', key: 'Type', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
@@ -516,10 +519,13 @@ const App: React.FC = () => {
 
       worksheet.columns = visibleColumns;
 
-      // Добавляем данные, выбирая только нужные колонки
+      // Добавляем данные, включая новые фиксированные значения
       const visibleData = mergedData.map(row => ({
+        Supplier: 'A.L.Electronics',
+        Receiver: 'Novocure',
         PO: row.PO,
         Line: row.Line,
+        Type: 'Final assembly',
         PN: row.PN,
         'QTY by dates': row['QTY by dates'],
         'Delivery-Requested': row['Delivery-Requested'],
@@ -823,6 +829,7 @@ const App: React.FC = () => {
       display: flex;
       flex-direction: column;
       align-items: center;
+      margin-top: 100px;
     }
 
     .app-title {
@@ -991,6 +998,19 @@ const App: React.FC = () => {
       width: 100%;
       position: relative;
       z-index: 1000;
+    }
+
+    .header-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+
+    .app-title {
+      margin: 0;
     }
   `;
 
@@ -1262,11 +1282,10 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
-      <div className="reset-container">
+      <div className="header-container">
+        <h1 className="app-title">Manager Excel Report</h1>
         <button onClick={handleReset}>RESET</button>
       </div>
-
-      <h1 className="app-title">Manager Excel Report</h1>
 
       <div className="file-input-container">
         <Input
