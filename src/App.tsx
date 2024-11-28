@@ -416,7 +416,7 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
-      // Создаем индекс, хранящий массив строк для каждого PN
+      // Создаем индекс для правой таблицы
       const rightSheetIndex: { [key: string]: any[] } = {};
       rightSheetData.forEach(row => {
         const pn = row['מקט'];
@@ -428,15 +428,12 @@ const App: React.FC = () => {
         }
       });
 
-      // Обрабатываем данные из Pro таблицы
+      // Обрабатываем данные из левой таблицы
       leftSheetData.forEach(row => {
         const pn = row['ALE PN'];
         if (!pn) return;
 
-        // Получаем массив соответствующих записей из SO таблицы
         const rightRows = rightSheetIndex[pn] || [];
-
-        // Для каждой даты создаем строки
         const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
 
         dateColumns.forEach(dateMapping => {
@@ -444,7 +441,7 @@ const App: React.FC = () => {
             const qtyField = dateMapping.sourceField.split(': ')[1];
             const qtyValue = row[qtyField];
               
-            if (qtyValue) {  // Создаем строки только если есть значение в колонке с датой
+            if (qtyValue) {
               rightRows.forEach(rightRow => {
                 const balance = rightRow['יתרה לאספקה'];
                 if (balance && balance !== 0) {
@@ -456,12 +453,13 @@ const App: React.FC = () => {
                         year: '2-digit'
                       }) : '';
 
+                  // Используем маппинг полей для создания новой строки
                   const newRow: TableRow = {
-                    PO: rightRow ? rightRow['מס הזמנה'] : '',
-                    Line: rightRow ? rightRow['מס שורת הזמנה'] : '',
+                    PO: rightRow ? rightRow[(fieldMapping['PO'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
+                    Line: rightRow ? rightRow[(fieldMapping['Line'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
                     PN: pn,
                     [`Qty ${dateMapping.date}`]: qtyValue,
-                    'QTY by dates': qtyValue,  // Просто копируем значение из текущей колонки с датой
+                    'QTY by dates': qtyValue,
                     'Delivery-Requested': deliveryRequested,
                     'Delivery-Expected': dateMapping.date,
                     'Balance to Supply': balance
