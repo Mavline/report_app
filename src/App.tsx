@@ -502,6 +502,8 @@ const App: React.FC = () => {
   };
 
   const downloadMergedFile = async () => {
+    console.log('Starting download with data:', mergedData);
+
     if (!mergedData || mergedData.length === 0) {
       console.error('No data to download');
       return;
@@ -511,7 +513,7 @@ const App: React.FC = () => {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Merged');
 
-      // Обновляем список колонок с форматами
+      // Обновляем список колонок, добавляя новые фиксированные колонки
       const visibleColumns = [
         { header: 'Supplier', key: 'Supplier', width: 15 },
         { header: 'Receiver', key: 'Receiver', width: 15 },
@@ -520,24 +522,14 @@ const App: React.FC = () => {
         { header: 'Type', key: 'Type', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
-        { 
-          header: 'Delivery-Requested', 
-          key: 'Delivery-Requested', 
-          width: 15,
-          style: { numFmt: 'dd mmm yy' }  // Формат даты
-        },
-        { 
-          header: 'Delivery-Expected', 
-          key: 'Delivery-Expected', 
-          width: 15,
-          style: { numFmt: 'dd mmm yyy' }  // Формат даты
-        },
+        { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
+        { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 },
         { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 }
       ];
 
       worksheet.columns = visibleColumns;
 
-      // Преобразуем строковые даты в объекты Date
+      // Добавляем данные, включая новые фиксированные значения
       const visibleData = mergedData.map(row => ({
         Supplier: 'A.L.Electronics',
         Receiver: 'Novocure',
@@ -546,18 +538,14 @@ const App: React.FC = () => {
         Type: 'Final assembly',
         PN: row.PN,
         'QTY by dates': row['QTY by dates'],
-        'Delivery-Requested': new Date(row['Delivery-Requested']),  // Конвертируем в Date
-        'Delivery-Expected': new Date(row['Delivery-Expected']),    // Конвертируем в Date
+        'Delivery-Requested': row['Delivery-Requested'],
+        'Delivery-Expected': row['Delivery-Expected'],
         'Balance to Supply': row['Balance to Supply']
       }));
 
       worksheet.addRows(visibleData);
 
-      // Применяем формат даты к существующим колонкам
-      worksheet.getColumn('Delivery-Requested').numFmt = 'dd mmm yy';
-      worksheet.getColumn('Delivery-Expected').numFmt = 'dd mmm yy';
-
-      // Стилизуем заголовок
+      // Стилизуем
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).fill = {
         type: 'pattern',
