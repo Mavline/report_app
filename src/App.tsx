@@ -416,6 +416,11 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
+      // Теперь можем логровать после объявления
+      console.log('Field mapping:', fieldMapping);
+      console.log('Left sheet data sample:', leftSheetData[0]);
+      console.log('Right sheet data sample:', rightSheetData[0]);
+
       // Создаем индекс для правой таблицы
       const rightSheetIndex: { [key: string]: any[] } = {};
       rightSheetData.forEach(row => {
@@ -439,7 +444,14 @@ const App: React.FC = () => {
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
             const qtyField = dateMapping.sourceField.split(': ')[1];
-            const qtyValue = row[qtyField];
+            const normalizedField = normalizeDate(qtyField);
+            const qtyValue = row[normalizedField];
+            
+            console.log('Field lookup:', {
+              field: qtyField,
+              availableFields: Object.keys(row),
+              value: qtyValue
+            });
               
             if (qtyValue) {
               rightRows.forEach(rightRow => {
@@ -473,7 +485,7 @@ const App: React.FC = () => {
         });
       });
 
-      // Сортируем результат по PN и дате
+      // Сортируем результат по PN и ате
       const sortedRows = mergedRows.sort((a, b) => {
         const pnCompare = a.PN.localeCompare(b.PN);
         if (pnCompare !== 0) return pnCompare;
@@ -490,8 +502,6 @@ const App: React.FC = () => {
   };
 
   const downloadMergedFile = async () => {
-    console.log('Starting download with data:', mergedData);
-
     if (!mergedData || mergedData.length === 0) {
       console.error('No data to download');
       return;
@@ -501,7 +511,7 @@ const App: React.FC = () => {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Merged');
 
-      // Обновляем список колонок, добавляя новые фиксированные колонки
+      // Обновляем список колонок с форматами
       const visibleColumns = [
         { header: 'Supplier', key: 'Supplier', width: 15 },
         { header: 'Receiver', key: 'Receiver', width: 15 },
@@ -510,14 +520,24 @@ const App: React.FC = () => {
         { header: 'Type', key: 'Type', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
-        { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
-        { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 },
+        { 
+          header: 'Delivery-Requested', 
+          key: 'Delivery-Requested', 
+          width: 15,
+          style: { numFmt: 'dd mmm yy' }  // Формат даты
+        },
+        { 
+          header: 'Delivery-Expected', 
+          key: 'Delivery-Expected', 
+          width: 15,
+          style: { numFmt: 'dd mmm yyy' }  // Формат даты
+        },
         { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 }
       ];
 
       worksheet.columns = visibleColumns;
 
-      // Добавляем данные, включая новые фиксированные значения
+      // Преобразуем строковые даты в объекты Date
       const visibleData = mergedData.map(row => ({
         Supplier: 'A.L.Electronics',
         Receiver: 'Novocure',
@@ -526,14 +546,18 @@ const App: React.FC = () => {
         Type: 'Final assembly',
         PN: row.PN,
         'QTY by dates': row['QTY by dates'],
-        'Delivery-Requested': row['Delivery-Requested'],
-        'Delivery-Expected': row['Delivery-Expected'],
+        'Delivery-Requested': new Date(row['Delivery-Requested']),  // Конвертируем в Date
+        'Delivery-Expected': new Date(row['Delivery-Expected']),    // Конвертируем в Date
         'Balance to Supply': row['Balance to Supply']
       }));
 
       worksheet.addRows(visibleData);
 
-      // Стилизуем
+      // Применяем формат даты к существующим колонкам
+      worksheet.getColumn('Delivery-Requested').numFmt = 'dd mmm yy';
+      worksheet.getColumn('Delivery-Expected').numFmt = 'dd mmm yy';
+
+      // Стилизуем заголовок
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).fill = {
         type: 'pattern',
@@ -706,35 +730,36 @@ const App: React.FC = () => {
     );
   };
 
+  const normalizeDate = (dateStr: string): string => {
+    return dateStr.replace(/^0(\d)/, '$1');  // Убираем ведущий ноль
+  };
+
   // Обновляем обработчик drop
   const handleFieldDrop = (templateField: string, droppedField: string, sourceSheet: string) => {
     if (templateField === 'Qty-by-date') {
-      // Извлекаем дату из названия поля
       const [col, value] = droppedField.split(': ');
-      const date = formatDate(value);
-
+      const normalizedValue = normalizeDate(value);
+      
       setFieldMapping(prev => {
         const existing = (prev[templateField] as DateColumnMapping[]) || [];
         
-        // Проверяем, нет ли уже такой даты
-        if (existing.some(mapping => mapping.date === date)) {
-          return prev; // Пропускаем дублкаты
+        // Проверяем дубликаты
+        if (existing.some(mapping => mapping.date === normalizedValue)) {
+          return prev;
         }
 
         const newMapping = {
           sourceSheet,
           sourceField: droppedField,
-          date
+          date: normalizedValue
         };
 
-        // Добавляем новое маппинг и сортируем по дате
-        const updated = [...existing, newMapping].sort((a, b) => 
-          new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
-
+        // Сохраняем сортировку
         return {
           ...prev,
-          [templateField]: updated
+          [templateField]: [...existing, newMapping].sort((a, b) => 
+            new Date(a.date).getTime() - new Date(b.date).getTime()
+          )
         };
       });
     } else {
