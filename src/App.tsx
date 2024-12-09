@@ -51,7 +51,8 @@ const templateColumns: TemplateColumn[] = [
   { id: 'PN', title: 'PN', isRequired: true },
   { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
   { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
-  { id: 'Balance-to-Supply', title: 'Balance to Supply' }
+  { id: 'Balance-to-Supply', title: 'Balance to Supply' },
+  { id: 'Delivery', title: 'Delivery' }
 ];
 
 // Обновляем интерфейс для маппинга полей с датами
@@ -101,6 +102,63 @@ interface SheetData {
   name: string;
   data: TableRow[];
 }
+
+// Добавляем интерфейс для группы доставки
+interface DeliveryGroup {
+  pn: string;
+  rows: TableRow[];
+  balance: number;
+  deficit: number;
+}
+
+// Функция расчета доставки с учетом Delivery-Expected
+const calculateDelivery = (rows: TableRow[]): TableRow[] => {
+  // Группируем строки по PN
+  const groupedByPN: { [key: string]: TableRow[] } = {};
+  
+  rows.forEach(row => {
+    const pn = row.PN;
+    if (!groupedByPN[pn]) {
+      groupedByPN[pn] = [];
+    }
+    groupedByPN[pn].push(row);
+  });
+
+  const result: TableRow[] = [];
+  
+  // Обрабатываем каждую группу PN отдельно
+  Object.entries(groupedByPN).forEach(([pn, groupRows]) => {
+    // Сортируем строки по дате Delivery-Expected
+    const sortedRows = groupRows.sort((a, b) => 
+      new Date(a['Delivery-Expected']).getTime() - 
+      new Date(b['Delivery-Expected']).getTime()
+    );
+
+    let remainingBalance = 0;
+
+    sortedRows.forEach((row) => {
+      // Приводим значения к числам и обрабатываем 0.01 как 0
+      let qtyByDates = Number(row['QTY by dates']) || 0;
+      let balanceToSupply = Number(row['Balance to Supply']) || 0;
+      
+      if (Math.abs(qtyByDates - 0.01) < 0.001) qtyByDates = 0;
+      if (Math.abs(balanceToSupply - 0.01) < 0.001) balanceToSupply = 0;
+
+      // Определяем значение поставки как минимум между требованием и балансом
+      row.Delivery = Math.min(qtyByDates, balanceToSupply);
+      
+      result.push(row);
+    });
+  });
+
+  // Сортируем результат по PN и дате
+  return result.sort((a, b) => {
+    const pnCompare = a.PN.localeCompare(b.PN);
+    if (pnCompare !== 0) return pnCompare;
+    return new Date(a['Delivery-Expected']).getTime() - 
+           new Date(b['Delivery-Expected']).getTime();
+  });
+};
 
 const App: React.FC = () => {
 
@@ -490,8 +548,23 @@ const App: React.FC = () => {
         return new Date(a['Delivery-Expected']).getTime() - new Date(b['Delivery-Expected']).getTime();
       });
 
-      setMergedData(sortedRows);
-      setMergedPreview(sortedRows.slice(0, 10));
+      // Группируем по PN и обрабатываем каждую группу
+      const groupedByPN = sortedRows.reduce((groups: { [key: string]: TableRow[] }, row) => {
+        const pn = row.PN;
+        if (!groups[pn]) {
+          groups[pn] = [];
+        }
+        groups[pn].push(row);
+        return groups;
+      }, {});
+
+      // Обрабатываем каждую группу и собираем результаты
+      const processedRows = Object.values(groupedByPN).flatMap(group => 
+        calculateDelivery(group)
+      );
+
+      setMergedData(processedRows);
+      setMergedPreview(processedRows.slice(0, 10));
 
     } catch (error) {
       console.error('Error during merge:', error);
@@ -523,7 +596,8 @@ const App: React.FC = () => {
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
         { header: 'Delivery-Expected', key: 'Delivery-Expected', width: 15 },
-        { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 }
+        { header: 'Balance to Supply', key: 'Balance to Supply', width: 15 },
+        { header: 'Delivery', key: 'Delivery', width: 15 }
       ];
 
       worksheet.columns = visibleColumns;
@@ -540,10 +614,32 @@ const App: React.FC = () => {
         'QTY by dates': row['QTY by dates'],
         'Delivery-Requested': row['Delivery-Requested'],
         'Delivery-Expected': row['Delivery-Expected'],
-        'Balance to Supply': row['Balance to Supply']
+        'Balance to Supply': row['Balance to Supply'],
+        Delivery: row['Delivery']
       }));
 
       worksheet.addRows(visibleData);
+
+
+      let previousPN = '';
+    visibleData.forEach((row, index) => {
+      const currentPN = row.PN;
+      // Если PN изменился и это не первая строка
+      if (currentPN !== previousPN && index > 0) {
+        // Добавляем линию перед текущей строкой
+        const rowNumber = index + 2; // +2 потому что индекс начинается с 0 и есть заголовок
+        const currentRow = worksheet.getRow(rowNumber);
+        // Применяем границу ко всем ячейкам в строке
+        visibleColumns.forEach((_, colIndex) => {
+          const cell = currentRow.getCell(colIndex + 1);
+          cell.border = {
+            ...cell.border,
+            top: { style: 'medium' }
+          };
+        });
+      }
+      previousPN = currentPN;
+    });
 
       // Стилизуем
       worksheet.getRow(1).font = { bold: true };
@@ -907,7 +1003,7 @@ const App: React.FC = () => {
 
     .template-header {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(8, 1fr);
       gap: 15px;
       padding: 10px;
     }
@@ -1204,7 +1300,8 @@ const App: React.FC = () => {
       'QTY by dates',
       'Delivery-Requested',
       'Delivery-Expected',
-      'Balance to Supply'
+      'Balance to Supply',
+      'Delivery'
     ];
 
     return (
@@ -1251,7 +1348,7 @@ const App: React.FC = () => {
 
     .preview-header {
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: repeat(9, 1fr);
       background-color: #2d2d2d;
       padding: 10px 0;
       position: sticky;
@@ -1261,7 +1358,7 @@ const App: React.FC = () => {
 
     .preview-row {
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: repeat(9, 1fr);
       border-bottom: 1px solid #4a4a4a;
     }
 
