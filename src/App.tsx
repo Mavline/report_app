@@ -47,6 +47,7 @@ interface TemplateColumn {
 const templateColumns: TemplateColumn[] = [
   { id: 'PO', title: 'PO' },
   { id: 'Line', title: 'Line' },
+  { id: 'REF', title: 'REF NUMBER' },
   { id: 'PN', title: 'PN', isRequired: true },
   { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
   { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
@@ -416,11 +417,6 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
-      // Теперь можем логровать после объявления
-      console.log('Field mapping:', fieldMapping);
-      console.log('Left sheet data sample:', leftSheetData[0]);
-      console.log('Right sheet data sample:', rightSheetData[0]);
-
       // Создаем индекс для правой таблицы
       const rightSheetIndex: { [key: string]: any[] } = {};
       rightSheetData.forEach(row => {
@@ -447,12 +443,6 @@ const App: React.FC = () => {
             const normalizedField = normalizeDate(qtyField);
             const qtyValue = row[normalizedField];
             
-            console.log('Field lookup:', {
-              field: qtyField,
-              availableFields: Object.keys(row),
-              value: qtyValue
-            });
-              
             if (qtyValue) {
               rightRows.forEach(rightRow => {
                 const balance = rightRow['יתרה לאספקה'];
@@ -465,10 +455,18 @@ const App: React.FC = () => {
                         year: '2-digit'
                       }) : '';
 
+                  // Получаем значение REF из маппинга полей
+                  const refMapping = fieldMapping['REF'] as { sourceSheet: string; sourceField: string };
+                  const refValue = refMapping ? 
+                    (refMapping.sourceSheet === selectedSheets.left ? 
+                      row[refMapping.sourceField.split(': ')[1]] : 
+                      rightRow[refMapping.sourceField.split(': ')[1]]) : '';
+
                   // Используем маппинг полей для создания новой строки
                   const newRow: TableRow = {
                     PO: rightRow ? rightRow[(fieldMapping['PO'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
                     Line: rightRow ? rightRow[(fieldMapping['Line'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
+                    REF: refValue, // Добавляем значение REF
                     PN: pn,
                     [`Qty ${dateMapping.date}`]: qtyValue,
                     'QTY by dates': qtyValue,
@@ -485,7 +483,7 @@ const App: React.FC = () => {
         });
       });
 
-      // Сортируем результат по PN и ате
+      // Сортируем результат по PN и дате
       const sortedRows = mergedRows.sort((a, b) => {
         const pnCompare = a.PN.localeCompare(b.PN);
         if (pnCompare !== 0) return pnCompare;
@@ -520,6 +518,7 @@ const App: React.FC = () => {
         { header: 'PO', key: 'PO', width: 15 },
         { header: 'Line', key: 'Line', width: 15 },
         { header: 'Type', key: 'Type', width: 15 },
+        { header: 'REF', key: 'REF', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
@@ -536,6 +535,7 @@ const App: React.FC = () => {
         PO: row.PO,
         Line: row.Line,
         Type: 'Final assembly',
+        REF: row['REF'],
         PN: row.PN,
         'QTY by dates': row['QTY by dates'],
         'Delivery-Requested': row['Delivery-Requested'],
@@ -907,7 +907,7 @@ const App: React.FC = () => {
 
     .template-header {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr);
       gap: 15px;
       padding: 10px;
     }
@@ -1196,10 +1196,10 @@ const App: React.FC = () => {
   const MergedPreview: React.FC<{ data: TableRow[] }> = ({ data }) => {
     if (!data || data.length === 0) return null;
 
-    // Определяем нужные колонки в правильном порядке
     const displayColumns = [
       'PO',
       'Line',
+      'REF',
       'PN',
       'QTY by dates',
       'Delivery-Requested',
@@ -1251,7 +1251,7 @@ const App: React.FC = () => {
 
     .preview-header {
       display: grid;
-      grid-template-columns: repeat(7, 1fr); // Изменено на 7 колонок
+      grid-template-columns: repeat(8, 1fr);
       background-color: #2d2d2d;
       padding: 10px 0;
       position: sticky;
@@ -1261,7 +1261,7 @@ const App: React.FC = () => {
 
     .preview-row {
       display: grid;
-      grid-template-columns: repeat(7, 1fr); // Изменено на 7 колонок
+      grid-template-columns: repeat(8, 1fr);
       border-bottom: 1px solid #4a4a4a;
     }
 
