@@ -111,7 +111,7 @@ interface DeliveryGroup {
   deficit: number;
 }
 
-// Функция расчета доставки с учетом Delivery-Expected
+// Функция расчета доставки с учетом новой формулы
 const calculateDelivery = (rows: TableRow[]): TableRow[] => {
   // Группируем строки по PN
   const groupedByPN: { [key: string]: TableRow[] } = {};
@@ -134,19 +134,38 @@ const calculateDelivery = (rows: TableRow[]): TableRow[] => {
       new Date(b['Delivery-Expected']).getTime()
     );
 
-    let remainingBalance = 0;
-
-    sortedRows.forEach((row) => {
-      // Приводим значения к числам и обрабатываем 0.01 как 0
-      let qtyByDates = Number(row['QTY by dates']) || 0;
-      let balanceToSupply = Number(row['Balance to Supply']) || 0;
+    // Для каждой строки в группе
+    sortedRows.forEach((row, index) => {
+      const prevRow = index > 0 ? sortedRows[index - 1] : null;
+      const nextRow = index < sortedRows.length - 1 ? sortedRows[index + 1] : null;
       
-      if (Math.abs(qtyByDates - 0.01) < 0.001) qtyByDates = 0;
-      if (Math.abs(balanceToSupply - 0.01) < 0.001) balanceToSupply = 0;
+      // Приводим значения к числам
+      const qtyByDates = Number(row['QTY by dates']) || 0;
+      const balanceToSupply = Number(row['Balance to Supply']) || 0;
 
-      // Определяем значение поставки как минимум между требованием и балансом
-      row.Delivery = Math.min(qtyByDates, balanceToSupply);
+      // Рассчитываем среднее QTY by dates для текущего PN
+      const avgQtyByDates = groupRows.reduce((sum, r) => sum + (Number(r['QTY by dates']) || 0), 0) / groupRows.length;
       
+      // Рассчитываем сумму Balance to Supply для текущего PN
+      const sumBalanceToSupply = groupRows.reduce((sum, r) => sum + (Number(r['Balance to Supply']) || 0), 0);
+
+      // Проверяем условия согласно формуле
+      if (nextRow && row.PN === nextRow.PN && row['Delivery-Expected'] === nextRow['Delivery-Expected']) {
+        row.Delivery = '#';
+      } else if (prevRow && row.PN === prevRow.PN && row['Delivery-Expected'] === prevRow['Delivery-Expected']) {
+        row.Delivery = '#';
+      } else if (avgQtyByDates > sumBalanceToSupply) {
+        row.Delivery = `Missing PO ${avgQtyByDates - sumBalanceToSupply} Units`;
+      } else if (groupRows.length === 1 && balanceToSupply >= qtyByDates) {
+        row.Delivery = qtyByDates;
+      } else if (groupRows.length === 2 && 
+                groupRows.reduce((sum, r) => sum + (Number(r['QTY by dates']) || 0), 0) <= 
+                groupRows.reduce((sum, r) => sum + (Number(r['Balance to Supply']) || 0), 0)) {
+        row.Delivery = qtyByDates;
+      } else {
+        row.Delivery = '#';
+      }
+
       result.push(row);
     });
   });
