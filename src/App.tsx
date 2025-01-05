@@ -47,12 +47,11 @@ interface TemplateColumn {
 const templateColumns: TemplateColumn[] = [
   { id: 'PO', title: 'PO' },
   { id: 'Line', title: 'Line' },
-  { id: 'REF', title: 'REF NUMBER' },
+  { id: 'REF', title: 'Customer SAP#' },
   { id: 'PN', title: 'PN', isRequired: true },
   { id: 'Qty-by-date', title: 'Qty by date', isDateColumn: true, isMultiple: true },
   { id: 'Delivery-Requested', title: 'Delivery-Requested', isDateColumn: true },
-  { id: 'Balance-to-Supply', title: 'Balance to Supply' },
-  { id: 'Delivery', title: 'Delivery' }
+  { id: 'Balance-to-Supply', title: 'Balance to Supply' }
 ];
 
 // Обновляем интерфейс для маппинга полей с датами
@@ -610,7 +609,7 @@ const App: React.FC = () => {
         { header: 'PO', key: 'PO', width: 15 },
         { header: 'Line', key: 'Line', width: 15 },
         { header: 'Type', key: 'Type', width: 15 },
-        { header: 'REF', key: 'REF', width: 15 },
+        { header: 'Customer SAP#', key: 'REF', width: 15 },
         { header: 'PN', key: 'PN', width: 15 },
         { header: 'QTY by dates', key: 'QTY by dates', width: 15 },
         { header: 'Delivery-Requested', key: 'Delivery-Requested', width: 15 },
@@ -1013,6 +1012,7 @@ const App: React.FC = () => {
       padding: 20px;
       border-radius: 8px;
       margin-top: 30px;
+      overflow-x: hidden;
     }
 
     .template-table {
@@ -1022,9 +1022,11 @@ const App: React.FC = () => {
 
     .template-header {
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: repeat(7, 1fr);
+      align-items: center;
       gap: 15px;
       padding: 10px;
+      width: 100%;
     }
 
     .template-column {
@@ -1038,6 +1040,7 @@ const App: React.FC = () => {
       align-items: center;
       justify-content: center;
       transition: all 0.3s ease;
+      width: 80%;
     }
 
     .template-column.dragover {
@@ -1319,8 +1322,7 @@ const App: React.FC = () => {
       'QTY by dates',
       'Delivery-Requested',
       'Delivery-Expected',
-      'Balance to Supply',
-      'Delivery'
+      'Balance to Supply'
     ];
 
     return (
@@ -1367,7 +1369,7 @@ const App: React.FC = () => {
 
     .preview-header {
       display: grid;
-      grid-template-columns: repeat(9, 1fr);
+      grid-template-columns: repeat(8, 1fr);
       background-color: #2d2d2d;
       padding: 10px 0;
       position: sticky;
@@ -1377,7 +1379,7 @@ const App: React.FC = () => {
 
     .preview-row {
       display: grid;
-      grid-template-columns: repeat(9, 1fr);
+      grid-template-columns: repeat(8, 1fr);
       border-bottom: 1px solid #4a4a4a;
     }
 
