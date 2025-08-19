@@ -516,8 +516,8 @@ const App: React.FC = () => {
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
             const qtyField = dateMapping.sourceField.split(': ')[1];
-            const normalizedField = normalizeDate(qtyField);
-            const qtyValue = row[normalizedField];
+            // Use a flexible matcher to find the correct key regardless of 'Sep'/'Sept' and leading zero
+            const qtyValue = getValueByDateKey(row, qtyField);
             
             if (qtyValue) {
               rightRows.forEach(rightRow => {
@@ -833,7 +833,56 @@ const App: React.FC = () => {
   };
 
   const normalizeDate = (dateStr: string): string => {
-    return dateStr.replace(/^0(\d)/, '$1');  // Убираем ведущий ноль
+    // Canonicalize month names to 3-letter English abbreviations and remove leading zero in day
+    // Accepts variations like "Sept" vs "Sep" and extra spaces
+    const monthMap: Record<string, string> = {
+      jan: 'Jan', january: 'Jan',
+      feb: 'Feb', february: 'Feb',
+      mar: 'Mar', march: 'Mar',
+      apr: 'Apr', april: 'Apr',
+      may: 'May',
+      jun: 'Jun', june: 'Jun',
+      jul: 'Jul', july: 'Jul',
+      aug: 'Aug', august: 'Aug',
+      sep: 'Sep', sept: 'Sep', september: 'Sep',
+      oct: 'Oct', october: 'Oct',
+      nov: 'Nov', november: 'Nov',
+      dec: 'Dec', december: 'Dec',
+    };
+
+    // Expected inputs look like: "04 Sept 25" or "4 Sep 25"
+    const parts = dateStr.trim().replace(/\s+/g, ' ').split(' ');
+    if (parts.length !== 3) {
+      // Fallback: only remove leading zero if present
+      return dateStr.replace(/^0(\d)/, '$1');
+    }
+
+    let [day, mon, year] = parts;
+    // remove leading zero from day
+    day = day.replace(/^0(\d)/, '$1');
+    const monKey = mon.toLowerCase();
+    const monCanon = monthMap[monKey] ?? mon; // keep original if unknown
+    return `${day} ${monCanon} ${year}`;
+  };
+
+  // Try multiple variants of a date label to match sheet_to_json headers reliably
+  const getValueByDateKey = (row: TableRow, label: string): any => {
+    const candidates = new Set<string>();
+    const norm = normalizeDate(label);
+    candidates.add(label);
+    candidates.add(norm);
+    // Generate alt variants for Sep/Sept and day with/without leading zero
+    const swapSep = (s: string) => s.replace(/\bSept\b/g, 'Sep').replace(/\bSep\b/g, 'Sept');
+    const toggleLeadingZero = (s: string) => s.replace(/^(\d) /, '0$1 ');
+    [label, norm].forEach(v => {
+      candidates.add(swapSep(v));
+      candidates.add(toggleLeadingZero(v));
+      candidates.add(toggleLeadingZero(swapSep(v)));
+    });
+    for (const key of Array.from(candidates)) {
+      if (key in row) return row[key];
+    }
+    return undefined;
   };
 
   // Обновляем обработчик drop
