@@ -239,6 +239,35 @@ const App: React.FC = () => {
     setSelectedFieldsOrder(allSelectedFields);
   }, [selectedFields, file]);
 
+  useEffect(() => {
+    if (!selectedSheets.left && !selectedSheets.right && Object.keys(fieldMapping).length === 0) {
+      return;
+    }
+
+    const qtyMappings = Array.isArray(fieldMapping['Qty-by-date'])
+      ? (fieldMapping['Qty-by-date'] as DateColumnMapping[])
+      : [];
+
+    const mappedSingleFields = Object.entries(fieldMapping)
+      .filter(([, value]) => !Array.isArray(value))
+      .map(([templateField, value]) => ({
+        templateField,
+        sourceSheet: (value as { sourceSheet: string; sourceField: string }).sourceSheet,
+        sourceField: (value as { sourceSheet: string; sourceField: string }).sourceField
+      }));
+
+    console.groupCollapsed('[mapping] state');
+    console.log({
+      selectedSheets,
+      mappedSingleFields,
+      qtyMappings,
+      mergeButtonEnabled: !!fieldMapping['PN'],
+      leftSheetRows: selectedSheets.left ? (sheetData[selectedSheets.left]?.length || 0) : 0,
+      rightSheetRows: selectedSheets.right ? (sheetData[selectedSheets.right]?.length || 0) : 0
+    });
+    console.groupEnd();
+  }, [fieldMapping, selectedSheets, sheetData]);
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
     if (!uploadedFile) return;
@@ -306,6 +335,17 @@ const App: React.FC = () => {
       const jsonData = XLSX.utils.sheet_to_json<TableRow>(worksheet, {
         range: { s: { r: headerRowIndex, c: 0 }, e: worksheet['!ref'] ? XLSX.utils.decode_range(worksheet['!ref']).e : undefined }
       });
+
+      console.groupCollapsed(`[sheetSelection] ${side}: ${sheetName}`);
+      console.log({
+        headerRowIndex,
+        headersCount: headers.length,
+        headersSample: headers.slice(0, 12),
+        parsedRows: jsonData.length,
+        firstRowKeys: Object.keys(jsonData[0] || {})
+      });
+      console.groupEnd();
+
       setSheetData(prev => ({
         ...prev,
         [sheetName]: jsonData
@@ -497,10 +537,70 @@ const App: React.FC = () => {
 
       if (!leftSheetData || !rightSheetData) return;
 
+      const dateColumns = ((fieldMapping['Qty-by-date'] as DateColumnMapping[] | undefined) || []);
+      const dateLikeKeyRegex = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i;
+      const normalizeHeaderKey = (key: string) => key.replace(/\s+/g, ' ').trim();
+      const resolveHeaderKey = (rows: TableRow[], expectedKey: string): string => {
+        const expectedNorm = normalizeHeaderKey(expectedKey);
+        for (const row of rows.slice(0, 50)) {
+          for (const key of Object.keys(row || {})) {
+            if (normalizeHeaderKey(key) === expectedNorm) {
+              return key;
+            }
+          }
+        }
+        return expectedKey;
+      };
+
+      const leftPnKey = resolveHeaderKey(leftSheetData, 'ALE PN');
+      const rightPnKey = resolveHeaderKey(rightSheetData, 'מקט');
+      const rightBalanceKey = resolveHeaderKey(rightSheetData, 'יתרה לאספקה');
+      const rightRequestedDateKey = resolveHeaderKey(rightSheetData, 'תאריך מובטח');
+
+      const mergeStats = {
+        leftRowsTotal: leftSheetData.length,
+        rightRowsTotal: rightSheetData.length,
+        rightRowsIndexedByPn: 0,
+        leftRowsScanned: 0,
+        leftRowsWithoutPn: 0,
+        leftRowsWithRightMatch: 0,
+        leftRowsWithoutRightMatch: 0,
+        pnMissSamples: [] as Array<{ pn: any }>,
+        dateMappingsTotal: dateColumns.length,
+        dateMappingsFromLeftSheet: 0,
+        qtyResolvedTruthy: 0,
+        qtyLookupMissing: 0,
+        qtyLookupMissingSamples: [] as Array<{ pn: any; qtyField: string; availableDateLikeKeys: string[] }>,
+        qtyFalsyButPresentSkipped: 0,
+        rightRowsPassedBalanceFilter: 0,
+        rightRowsRejectedByBalanceFilter: 0,
+        rightRowsRejectedByBalanceSamples: [] as Array<{ pn: any; balance: any }>,
+        mergedRowsBeforeProcessing: 0,
+        mergedRowsAfterProcessing: 0
+      };
+
+      console.groupCollapsed('[merge] start');
+      console.log({
+        selectedSheets,
+        fieldMapping,
+        dateColumns,
+        resolvedHardcodedKeys: {
+          leftPnKey,
+          rightPnKey,
+          rightBalanceKey,
+          rightRequestedDateKey
+        },
+        leftRows: leftSheetData.length,
+        rightRows: rightSheetData.length,
+        leftFirstRowKeys: Object.keys(leftSheetData[0] || {}),
+        rightFirstRowKeys: Object.keys(rightSheetData[0] || {})
+      });
+      console.groupEnd();
+
       // Создаем индекс для правой таблицы
       const rightSheetIndex: { [key: string]: any[] } = {};
       rightSheetData.forEach(row => {
-        const pn = row['מקט'];
+        const pn = row[rightPnKey];
         if (pn) {
           if (!rightSheetIndex[pn]) {
             rightSheetIndex[pn] = [];
@@ -508,28 +608,44 @@ const App: React.FC = () => {
           rightSheetIndex[pn].push(row);
         }
       });
+      mergeStats.rightRowsIndexedByPn = Object.keys(rightSheetIndex).length;
 
       // Обрабатываем данные из левой таблицы
       leftSheetData.forEach(row => {
-        const pn = row['ALE PN'];
-        if (!pn) return;
+        mergeStats.leftRowsScanned++;
+        const pn = row[leftPnKey];
+        if (!pn) {
+          mergeStats.leftRowsWithoutPn++;
+          return;
+        }
 
         const rightRows = rightSheetIndex[pn] || [];
-        const dateColumns = fieldMapping['Qty-by-date'] as DateColumnMapping[];
+        if (rightRows.length > 0) {
+          mergeStats.leftRowsWithRightMatch++;
+        } else {
+          mergeStats.leftRowsWithoutRightMatch++;
+          if (mergeStats.pnMissSamples.length < 5) {
+            mergeStats.pnMissSamples.push({ pn });
+          }
+        }
 
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
+            mergeStats.dateMappingsFromLeftSheet++;
             const qtyField = dateMapping.sourceField.split(': ')[1];
             // Use a flexible matcher to find the correct key regardless of 'Sep'/'Sept' and leading zero
             const qtyValue = getValueByDateKey(row, qtyField);
+            const hasQtyValue = qtyValue !== undefined && qtyValue !== null && qtyValue !== '';
             
             if (qtyValue) {
+              mergeStats.qtyResolvedTruthy++;
               rightRows.forEach(rightRow => {
-                const balance = rightRow['יתרה לאספקה'];
+                const balance = rightRow[rightBalanceKey];
                 if (balance && balance !== 0) {
+                  mergeStats.rightRowsPassedBalanceFilter++;
                   let deliveryRequested = '';
-                  if (rightRow && rightRow['תאריך מובטח'] != null) {
-                    const rawVal = rightRow['תאריך מובטח'];
+                  if (rightRow && rightRow[rightRequestedDateKey] != null) {
+                    const rawVal = rightRow[rightRequestedDateKey];
                     if (typeof rawVal === 'number') {
                       deliveryRequested = formatDateDeterministic(excelSerialToDate(rawVal));
                     } else if (typeof rawVal === 'string') {
@@ -558,12 +674,31 @@ const App: React.FC = () => {
                   };
                   
                   mergedRows.push(newRow);
+                } else {
+                  mergeStats.rightRowsRejectedByBalanceFilter++;
+                  if (mergeStats.rightRowsRejectedByBalanceSamples.length < 5) {
+                    mergeStats.rightRowsRejectedByBalanceSamples.push({ pn, balance });
+                  }
                 }
               });
+            } else if (hasQtyValue) {
+              mergeStats.qtyFalsyButPresentSkipped++;
+            } else {
+              mergeStats.qtyLookupMissing++;
+              if (mergeStats.qtyLookupMissingSamples.length < 5) {
+                mergeStats.qtyLookupMissingSamples.push({
+                  pn,
+                  qtyField,
+                  availableDateLikeKeys: Object.keys(row)
+                    .filter(key => dateLikeKeyRegex.test(key))
+                    .slice(0, 12)
+                });
+              }
             }
           }
         });
       });
+      mergeStats.mergedRowsBeforeProcessing = mergedRows.length;
 
       // Сортируем результат по PN и дате
       const sortedRows = mergedRows.sort((a, b) => {
@@ -586,8 +721,26 @@ const App: React.FC = () => {
       const processedRows = Object.values(groupedByPN).flatMap(group => 
         calculateDelivery(group)
       );
+      mergeStats.mergedRowsAfterProcessing = processedRows.length;
+
+      console.groupCollapsed('[merge] diagnostics');
+      console.log(mergeStats);
+      if (mergeStats.leftRowsWithoutRightMatch > 0) {
+        console.warn('[merge] PN rows without right-sheet match (sample):', mergeStats.pnMissSamples);
+      }
+      if (mergeStats.qtyLookupMissing > 0) {
+        console.warn('[merge] Qty date lookup misses (sample):', mergeStats.qtyLookupMissingSamples);
+      }
+      if (mergeStats.qtyFalsyButPresentSkipped > 0) {
+        console.warn('[merge] Qty resolved but falsy (e.g. 0) and skipped by current condition:', mergeStats.qtyFalsyButPresentSkipped);
+      }
+      if (mergeStats.rightRowsRejectedByBalanceFilter > 0) {
+        console.warn('[merge] Right rows rejected by balance filter (sample):', mergeStats.rightRowsRejectedByBalanceSamples);
+      }
+      console.groupEnd();
 
       if (processedRows.length === 0) {
+        console.warn('[merge] No matching data found after processing. See [merge] diagnostics group above.');
         alert('No matching data found. Please verify that the field mappings and sheet data are correct.');
         return;
       }
@@ -922,6 +1075,12 @@ const App: React.FC = () => {
         
         // Проверяем дубликаты
         if (existing.some(mapping => mapping.date === normalizedValue)) {
+          console.warn('[mapping] duplicate Qty-by-date ignored', {
+            templateField,
+            sourceSheet,
+            droppedField,
+            normalizedValue
+          });
           return prev;
         }
 
@@ -932,18 +1091,36 @@ const App: React.FC = () => {
         };
 
         // Сохраняем сортировку
-        return {
+        const nextMapping = {
           ...prev,
           [templateField]: [...existing, newMapping].sort((a, b) => 
             new Date(a.date).getTime() - new Date(b.date).getTime()
           )
         };
+        console.log('[mapping] Qty-by-date added', {
+          sourceSheet,
+          droppedField,
+          parsedColumn: col,
+          normalizedValue,
+          totalQtyMappings: (nextMapping[templateField] as DateColumnMapping[]).length,
+          qtyMappings: nextMapping[templateField]
+        });
+        return nextMapping;
       });
     } else {
-      setFieldMapping(prev => ({
-        ...prev,
-        [templateField]: { sourceSheet, sourceField: droppedField }
-      }));
+      setFieldMapping(prev => {
+        const nextMapping = {
+          ...prev,
+          [templateField]: { sourceSheet, sourceField: droppedField }
+        };
+        console.log('[mapping] field assigned', {
+          templateField,
+          sourceSheet,
+          droppedField,
+          currentFieldMapping: nextMapping
+        });
+        return nextMapping;
+      });
     }
   };
 
