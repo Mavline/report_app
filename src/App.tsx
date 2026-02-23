@@ -876,20 +876,35 @@ const App: React.FC = () => {
     return `${day} ${monCanon} ${year}`;
   };
 
-  // Try multiple variants of a date label to match sheet_to_json headers reliably
   const getValueByDateKey = (row: TableRow, label: string): any => {
+    if (label in row) return row[label];
+
     const candidates = new Set<string>();
     const norm = normalizeDate(label);
-    candidates.add(label);
     candidates.add(norm);
-    // Generate alt variants for Sep/Sept and day with/without leading zero
-    const swapSep = (s: string) => s.replace(/\bSept\b/g, 'Sep').replace(/\bSep\b/g, 'Sept');
-    const toggleLeadingZero = (s: string) => s.replace(/^(\d) /, '0$1 ');
+
+    const swapSep = (s: string) => {
+      if (/\bSept\b/.test(s)) return s.replace(/\bSept\b/g, 'Sep');
+      return s.replace(/\bSep\b/g, 'Sept');
+    };
+    const toggleLeadingZero = (s: string) => {
+      if (/^0\d/.test(s)) return s.replace(/^0(\d)/, '$1');
+      return s.replace(/^(\d) /, '0$1 ');
+    };
+    const withDash = (s: string) => s.replace(/ /g, '-');
+    const withDot = (s: string) => s.replace(/(\w{3}) /g, '$1. ');
+
     [label, norm].forEach(v => {
       candidates.add(swapSep(v));
       candidates.add(toggleLeadingZero(v));
       candidates.add(toggleLeadingZero(swapSep(v)));
+      candidates.add(withDash(v));
+      candidates.add(withDash(swapSep(v)));
+      candidates.add(withDash(toggleLeadingZero(v)));
+      candidates.add(withDot(v));
+      candidates.add(withDot(swapSep(v)));
     });
+
     for (const key of Array.from(candidates)) {
       if (key in row) return row[key];
     }
@@ -1203,6 +1218,21 @@ const App: React.FC = () => {
     }
   `;
 
+  const getCellDisplayValue = (cell: any): string => {
+    if (cell.w) return cell.w;
+    if (typeof cell.v === 'number' && cell.v > 1) {
+      try {
+        const date = excelSerialToDate(cell.v);
+        if (!isNaN(date.getTime())) {
+          return formatDateDeterministic(date);
+        }
+      } catch (e) {
+        console.error('Error formatting date:', e);
+      }
+    }
+    return cell.v.toString();
+  };
+
   const getSheetHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
     const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
     const headers: { col: string; value: string }[] = [];
@@ -1212,22 +1242,9 @@ const App: React.FC = () => {
       const cell = worksheet[cellAddress];
       
       if (cell && cell.v) {
-        let value = cell.v.toString();
-        
-        if (typeof cell.v === 'number' && cell.v > 1) {
-          try {
-            const date = excelSerialToDate(cell.v);
-            if (!isNaN(date.getTime())) {
-              value = formatDateDeterministic(date);
-            }
-          } catch (e) {
-            console.error('Error formatting date:', e);
-          }
-        }
-        
         headers.push({
           col: XLSX.utils.encode_col(col),
-          value: value
+          value: getCellDisplayValue(cell)
         });
       }
     }
@@ -1244,22 +1261,9 @@ const App: React.FC = () => {
       const cell = worksheet[cellAddress];
       
       if (cell && cell.v) {
-        let value = cell.v.toString();
-        
-        if (typeof cell.v === 'number' && cell.v > 1) {
-          try {
-            const date = excelSerialToDate(cell.v);
-            if (!isNaN(date.getTime())) {
-              value = formatDateDeterministic(date);
-            }
-          } catch (e) {
-            console.error('Error formatting date:', e);
-          }
-        }
-        
         headers.push({
           col: XLSX.utils.encode_col(col),
-          value: value
+          value: getCellDisplayValue(cell)
         });
       }
     }
