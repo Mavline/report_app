@@ -69,28 +69,32 @@ interface FieldMapping {
   } | DateColumnMapping[];
 }
 
-// Добавляем функцию форматирования дат
+const MONTH_SHORT_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const formatDateDeterministic = (d: Date): string => {
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const mon = MONTH_SHORT_NAMES[d.getUTCMonth()];
+  const yr = String(d.getUTCFullYear()).slice(-2);
+  return `${day} ${mon} ${yr}`;
+};
+
+const excelSerialToDate = (serial: number): Date => {
+  const ms = Math.round((serial - 25569) * 86400 * 1000);
+  const d = new Date(0);
+  d.setUTCMilliseconds(ms);
+  return d;
+};
+
 const formatDate = (value: any): string => {
   if (!value) return '';
   
-  // Проверяем, является ли значение числом (Excel serial number)
   if (typeof value === 'number') {
-    const date = new Date((value - 25569) * 86400 * 1000);
-    return date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: '2-digit'
-    });
+    return formatDateDeterministic(excelSerialToDate(value));
   }
   
-  // Если это уже строка с датой, форматируем её
   const date = new Date(value);
   if (!isNaN(date.getTime())) {
-    return date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: '2-digit'
-    });
+    return formatDateDeterministic(date);
   }
   
   return value;
@@ -523,13 +527,15 @@ const App: React.FC = () => {
               rightRows.forEach(rightRow => {
                 const balance = rightRow['יתרה לאספקה'];
                 if (balance && balance !== 0) {
-                  const deliveryRequested = rightRow ? 
-                    new Date((rightRow['תאריך מובטח'] - 25569) * 86400 * 1000)
-                      .toLocaleDateString('en-GB', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: '2-digit'
-                      }) : '';
+                  let deliveryRequested = '';
+                  if (rightRow && rightRow['תאריך מובטח'] != null) {
+                    const rawVal = rightRow['תאריך מובטח'];
+                    if (typeof rawVal === 'number') {
+                      deliveryRequested = formatDateDeterministic(excelSerialToDate(rawVal));
+                    } else if (typeof rawVal === 'string') {
+                      deliveryRequested = rawVal;
+                    }
+                  }
 
                   // Получаем значение REF из маппинга полей
                   const refMapping = fieldMapping['REF'] as { sourceSheet: string; sourceField: string };
@@ -580,6 +586,11 @@ const App: React.FC = () => {
       const processedRows = Object.values(groupedByPN).flatMap(group => 
         calculateDelivery(group)
       );
+
+      if (processedRows.length === 0) {
+        alert('No matching data found. Please verify that the field mappings and sheet data are correct.');
+        return;
+      }
 
       setMergedData(processedRows);
       setMergedPreview(processedRows.slice(0, 10));
@@ -1203,16 +1214,11 @@ const App: React.FC = () => {
       if (cell && cell.v) {
         let value = cell.v.toString();
         
-        // Проверяем, является ли значение числом (Excel serial number)
         if (typeof cell.v === 'number' && cell.v > 1) {
           try {
-            const date = new Date((cell.v - 25569) * 86400 * 1000);
+            const date = excelSerialToDate(cell.v);
             if (!isNaN(date.getTime())) {
-              value = date.toLocaleDateString('en-GB', {
-                day: '2-digit',
-                month: 'short',
-                year: '2-digit'
-              });
+              value = formatDateDeterministic(date);
             }
           } catch (e) {
             console.error('Error formatting date:', e);
@@ -1239,35 +1245,22 @@ const App: React.FC = () => {
       
       if (cell && cell.v) {
         let value = cell.v.toString();
-        let shouldShow = true;
         
-        // Проверяем, является ли значение датой
         if (typeof cell.v === 'number' && cell.v > 1) {
           try {
-            const date = new Date((cell.v - 25569) * 86400 * 1000);
+            const date = excelSerialToDate(cell.v);
             if (!isNaN(date.getTime())) {
-              value = date.toLocaleDateString('en-GB', {
-                day: '2-digit',
-                month: 'short',
-                year: '2-digit'
-              });
-              
-              // Скрываем даты до авгуса 2024 года
-              if (date < new Date('2024-08-01')) {
-                shouldShow = false;
-              }
+              value = formatDateDeterministic(date);
             }
           } catch (e) {
             console.error('Error formatting date:', e);
           }
         }
         
-        if (shouldShow) {
-          headers.push({
-            col: XLSX.utils.encode_col(col),
-            value: value
-          });
-        }
+        headers.push({
+          col: XLSX.utils.encode_col(col),
+          value: value
+        });
       }
     }
     
