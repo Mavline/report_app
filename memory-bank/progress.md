@@ -12,13 +12,17 @@
 - 2026-02-23: Added runtime diagnostics for mapping and merge pipeline in `src/App.tsx`
 - 2026-02-23: Identified SO balance key mismatch due to SheetJS-preserved header spaces (`יתרה לאספקה`) causing all rows to be filtered out
 - 2026-02-23: Implemented whitespace-tolerant resolution for fixed hardcoded merge keys (without changing hardcoded workflow)
+- 2026-03-12: Reworked `Qty-by-date` matching from ad hoc string variants to canonical date fingerprints
+- 2026-03-12: Replaced `new Date(string)` sort usage for mapped/merged date labels with canonical sort values
+- 2026-03-12: Verified local `npm run build` succeeds after the date-normalization changes
+- 2026-03-12: Added sheet header metadata so mapped date labels come from actual Excel header cells, not only displayed header strings
+- 2026-03-12: Confirmed that the production issue was real and the fix was validated against the correct workbook; only an intermediate side-effect check used an outdated test file
 
 ## In Progress
-- Validate merge after hardcoded-key whitespace resolution fix on the same workbook
+- Prepare the validated fix for commit/push and deployment
 
 ## Pending
-- Validate merge behavior with real user-provided workbook that triggered the complaint
-- Confirm whether `qtyLookupMissing` remains only partial/noise or still blocks output after balance-key fix
+- Confirm the deployed Replit/site is running the fresh build
 - Decide whether to add regression tests for date header matching variants
 - Potentially refactor `src/App.tsx` helper functions into testable utilities
 
@@ -28,5 +32,5 @@
 - Replit publish commits may obscure which code change actually fixed behavior
 
 ## Notes
-- No local build/test was run in this session yet
+- Local `npm run build` was run successfully in this session
 - `node_modules` exists locally, so local build/run should be possible if needed

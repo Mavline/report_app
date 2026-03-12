@@ -58,3 +58,19 @@
 ## 2026-02-23 (memory infrastructure)
 - Added project-level `AGENTS.md` with rules for maintaining memory bank.
 - Initialized `memory-bank/` with 7 markdown files (Cline-style + change log).
+
+## 2026-03-12 (date normalization hardening)
+- Reviewed recurrence where merge worked overall but exactly one newly added date column failed to attach data.
+- Determined the remaining weakness was the `Qty-by-date` matcher in `src/App.tsx`: it still relied on a finite set of textual rewrites (`Sep/Sept`, zero-padding, simple punctuation variants).
+- Added canonical date helpers in `src/App.tsx`:
+  - `buildDateFingerprints`
+  - `getPreferredDateLabel`
+  - `getDateSortValue`
+- Updated `normalizeDate` to produce a canonical preferred label via parsed date identity.
+- Updated `getValueByDateKey` to compare canonical fingerprints for the dragged label and actual row keys, rather than only checking a manually generated string candidate list.
+- Updated mapped/merged date sorting to use canonical date sort values instead of `new Date(string)`.
+- Verified on 2026-03-12 that `npm run build` succeeds locally after the change.
+- Follow-up observation during the same session: restoring a missing March date surfaced a second weakness where April dates could still disappear if Excel changed header display to ambiguous numeric month/day strings.
+- Added sheet header metadata and cell-based normalization so `Qty-by-date` mapping now prefers canonical date derived from the actual header cell (`cell.v` / serial date) instead of only parsing the visible header text.
+- Updated merge field-key resolution to consult sheet metadata for mapped source fields before falling back to string splitting.
+- Clarification recorded later the same day: the production alarm was not false. The confusion came from validating side effects against an outdated workbook while the actual production failure had been genuine.

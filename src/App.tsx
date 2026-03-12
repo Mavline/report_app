@@ -61,6 +61,14 @@ interface DateColumnMapping {
   date: string;
 }
 
+interface SheetFieldMeta {
+  column: string;
+  displayValue: string;
+  exactKey: string;
+  normalizedDate?: string;
+  sourceField: string;
+}
+
 // Обновляем интерфейс FieldMapping для поддержки множественных полей
 interface FieldMapping {
   [templateField: string]: {
@@ -76,6 +84,169 @@ const formatDateDeterministic = (d: Date): string => {
   const mon = MONTH_SHORT_NAMES[d.getUTCMonth()];
   const yr = String(d.getUTCFullYear()).slice(-2);
   return `${day} ${mon} ${yr}`;
+};
+
+const MONTH_TOKEN_TO_INDEX: Record<string, number> = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+const normalizeDateWhitespace = (value: string): string =>
+  value
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u2000-\u200D\u202F\u205F\u3000]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const stripSheetJsDuplicateSuffix = (value: string): string =>
+  value.replace(/_\d+$/, '');
+
+const normalizeDatePunctuation = (value: string): string =>
+  stripSheetJsDuplicateSuffix(normalizeDateWhitespace(value))
+    .replace(/[,]/g, ' ')
+    .replace(/\s*[./-]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeDateYear = (yearValue: string | number): number | null => {
+  const yearNum = typeof yearValue === 'number' ? yearValue : Number(yearValue);
+  if (!Number.isFinite(yearNum)) return null;
+  if (yearNum >= 100) return yearNum;
+  return 2000 + yearNum;
+};
+
+const buildCanonicalDateKey = (day: number, monthIndex: number, year: number): string | null => {
+  if (!Number.isInteger(day) || !Number.isInteger(monthIndex) || !Number.isInteger(year)) return null;
+  if (monthIndex < 0 || monthIndex > 11) return null;
+  if (day < 1 || day > 31) return null;
+
+  const utcDate = new Date(Date.UTC(year, monthIndex, day));
+  if (
+    utcDate.getUTCFullYear() !== year ||
+    utcDate.getUTCMonth() !== monthIndex ||
+    utcDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+const buildDateFingerprints = (dateStr: string): Set<string> => {
+  const fingerprints = new Set<string>();
+  const trimmed = stripSheetJsDuplicateSuffix(normalizeDateWhitespace(dateStr));
+
+  if (!trimmed) return fingerprints;
+
+  fingerprints.add(`raw:${trimmed.toLowerCase()}`);
+
+  const punctuationNormalized = normalizeDatePunctuation(dateStr);
+  if (punctuationNormalized) {
+    fingerprints.add(`compact:${punctuationNormalized.toLowerCase()}`);
+  }
+
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const serial = Number(trimmed);
+    if (Number.isFinite(serial) && serial > 1) {
+      try {
+        const serialDate = excelSerialToDate(serial);
+        const canonical = buildCanonicalDateKey(
+          serialDate.getUTCDate(),
+          serialDate.getUTCMonth(),
+          serialDate.getUTCFullYear()
+        );
+        if (canonical) {
+          fingerprints.add(`canonical:${canonical}`);
+        }
+      } catch (error) {
+        console.error('Error converting numeric date header:', error);
+      }
+    }
+  }
+
+  const parts = punctuationNormalized
+    .split(' ')
+    .map(part => part.replace(/\.$/, ''))
+    .filter(Boolean);
+
+  if (parts.length !== 3) {
+    return fingerprints;
+  }
+
+  const monthIndex = parts.findIndex(part => MONTH_TOKEN_TO_INDEX[part.toLowerCase()] !== undefined);
+  if (monthIndex !== -1) {
+    const month = MONTH_TOKEN_TO_INDEX[parts[monthIndex].toLowerCase()];
+    const numericParts = parts.filter((_, index) => index !== monthIndex);
+    const day = Number(numericParts[0]);
+    const year = normalizeDateYear(numericParts[1]);
+    const canonical = year == null ? null : buildCanonicalDateKey(day, month, year);
+    if (canonical) {
+      fingerprints.add(`canonical:${canonical}`);
+    }
+    return fingerprints;
+  }
+
+  if (parts.every(part => /^\d+$/.test(part))) {
+    const [first, second, third] = parts.map(Number);
+    const year = normalizeDateYear(third);
+    if (year == null) return fingerprints;
+
+    const dmyCanonical = buildCanonicalDateKey(first, second - 1, year);
+    if (dmyCanonical) {
+      fingerprints.add(`canonical:${dmyCanonical}`);
+    }
+
+    const mdyCanonical = buildCanonicalDateKey(second, first - 1, year);
+    if (mdyCanonical) {
+      fingerprints.add(`canonical:${mdyCanonical}`);
+    }
+  }
+
+  return fingerprints;
+};
+
+const getPreferredDateLabel = (dateStr: string): string => {
+  const fingerprints = Array.from(buildDateFingerprints(dateStr));
+  const canonicalEntry = fingerprints.find(entry => entry.startsWith('canonical:'));
+  if (!canonicalEntry) {
+    return normalizeDateWhitespace(dateStr).replace(/^0(\d)/, '$1');
+  }
+
+  const canonicalValue = canonicalEntry.slice('canonical:'.length);
+  const [yearStr, monthStr, dayStr] = canonicalValue.split('-');
+  const year = Number(yearStr);
+  const monthIndex = Number(monthStr) - 1;
+  const day = Number(dayStr);
+
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || !Number.isFinite(day)) {
+    return normalizeDateWhitespace(dateStr).replace(/^0(\d)/, '$1');
+  }
+
+  return `${day} ${MONTH_SHORT_NAMES[monthIndex]} ${String(year).slice(-2)}`;
+};
+
+const getDateSortValue = (dateStr: string): number => {
+  const fingerprints = Array.from(buildDateFingerprints(dateStr));
+  const canonicalEntry = fingerprints.find(entry => entry.startsWith('canonical:'));
+  if (canonicalEntry) {
+    const timestamp = Date.parse(`${canonicalEntry.slice('canonical:'.length)}T00:00:00Z`);
+    if (!Number.isNaN(timestamp)) {
+      return timestamp;
+    }
+  }
+
+  const fallback = Date.parse(dateStr);
+  return Number.isNaN(fallback) ? Number.MAX_SAFE_INTEGER : fallback;
 };
 
 const excelSerialToDate = (serial: number): Date => {
@@ -133,8 +304,8 @@ const calculateDelivery = (rows: TableRow[]): TableRow[] => {
   Object.entries(groupedByPN).forEach(([pn, groupRows]) => {
     // Сортируем строки по дате Delivery-Expected
     const sortedRows = groupRows.sort((a, b) => 
-      new Date(a['Delivery-Expected']).getTime() - 
-      new Date(b['Delivery-Expected']).getTime()
+      getDateSortValue(String(a['Delivery-Expected'] ?? '')) -
+      getDateSortValue(String(b['Delivery-Expected'] ?? ''))
     );
 
     // Для каждой строки в группе
@@ -177,8 +348,8 @@ const calculateDelivery = (rows: TableRow[]): TableRow[] => {
   return result.sort((a, b) => {
     const pnCompare = a.PN.localeCompare(b.PN);
     if (pnCompare !== 0) return pnCompare;
-    return new Date(a['Delivery-Expected']).getTime() - 
-           new Date(b['Delivery-Expected']).getTime();
+    return getDateSortValue(String(a['Delivery-Expected'] ?? '')) -
+           getDateSortValue(String(b['Delivery-Expected'] ?? ''));
   });
 };
 
@@ -215,6 +386,7 @@ const App: React.FC = () => {
   });
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [sheetData, setSheetData] = useState<{ [key: string]: TableRow[] }>({});
+  const [sheetFieldMeta, setSheetFieldMeta] = useState<{ [sheetName: string]: { [sourceField: string]: SheetFieldMeta } }>({});
 
   useEffect(() => {
     // Logging component lifecycle
@@ -291,6 +463,7 @@ const App: React.FC = () => {
         setSheets(workbook.SheetNames);
         setSelectedSheets({ left: '', right: '' });
         setSheetFields({});
+        setSheetFieldMeta({});
       } catch (error) {
         console.error('Error loading file:', error);
         alert('Error loading file. The file might be too large or corrupted.');
@@ -314,7 +487,8 @@ const App: React.FC = () => {
       
       const worksheet = workbook.Sheets[sheetName];
       const headerRowIndex = findHeaderRow(worksheet);
-      const headers = filterAndFormatHeaders(worksheet, headerRowIndex);
+      const headerDetails = getSheetHeaderDetails(worksheet, headerRowIndex);
+      const headers = headerDetails.map(detail => detail.sourceField);
 
       setSelectedSheets(prev => ({
         ...prev,
@@ -324,6 +498,14 @@ const App: React.FC = () => {
       setSheetFields(prev => ({
         ...prev,
         [sheetName]: headers
+      }));
+
+      setSheetFieldMeta(prev => ({
+        ...prev,
+        [sheetName]: headerDetails.reduce((acc, detail) => {
+          acc[detail.sourceField] = detail;
+          return acc;
+        }, {} as { [sourceField: string]: SheetFieldMeta })
       }));
 
       // Добавляем принудительное обновление
@@ -341,6 +523,9 @@ const App: React.FC = () => {
         headerRowIndex,
         headersCount: headers.length,
         headersSample: headers.slice(0, 12),
+        normalizedDateSample: headerDetails
+          .filter(detail => detail.normalizedDate)
+          .slice(0, 12),
         parsedRows: jsonData.length,
         firstRowKeys: Object.keys(jsonData[0] || {})
       });
@@ -556,6 +741,8 @@ const App: React.FC = () => {
       const rightPnKey = resolveHeaderKey(rightSheetData, 'מקט');
       const rightBalanceKey = resolveHeaderKey(rightSheetData, 'יתרה לאספקה');
       const rightRequestedDateKey = resolveHeaderKey(rightSheetData, 'תאריך מובטח');
+      const resolveMappedSourceKey = (sheetName: string, sourceField: string): string =>
+        sheetFieldMeta[sheetName]?.[sourceField]?.exactKey || sourceField.split(': ')[1];
 
       const mergeStats = {
         leftRowsTotal: leftSheetData.length,
@@ -632,7 +819,7 @@ const App: React.FC = () => {
         dateColumns.forEach(dateMapping => {
           if (dateMapping.sourceSheet === selectedSheets.left) {
             mergeStats.dateMappingsFromLeftSheet++;
-            const qtyField = dateMapping.sourceField.split(': ')[1];
+            const qtyField = resolveMappedSourceKey(selectedSheets.left, dateMapping.sourceField);
             // Use a flexible matcher to find the correct key regardless of 'Sep'/'Sept' and leading zero
             const qtyValue = getValueByDateKey(row, qtyField);
             const hasQtyValue = qtyValue !== undefined && qtyValue !== null && qtyValue !== '';
@@ -657,13 +844,13 @@ const App: React.FC = () => {
                   const refMapping = fieldMapping['REF'] as { sourceSheet: string; sourceField: string };
                   const refValue = refMapping ? 
                     (refMapping.sourceSheet === selectedSheets.left ? 
-                      row[refMapping.sourceField.split(': ')[1]] : 
-                      rightRow[refMapping.sourceField.split(': ')[1]]) : '';
+                      row[resolveMappedSourceKey(selectedSheets.left, refMapping.sourceField)] : 
+                      rightRow[resolveMappedSourceKey(selectedSheets.right, refMapping.sourceField)]) : '';
 
                   // Используем маппинг полей для создания новой строки
                   const newRow: TableRow = {
-                    PO: rightRow ? rightRow[(fieldMapping['PO'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
-                    Line: rightRow ? rightRow[(fieldMapping['Line'] as { sourceField: string }).sourceField.split(': ')[1]] : '',
+                    PO: rightRow ? rightRow[resolveMappedSourceKey(selectedSheets.right, (fieldMapping['PO'] as { sourceField: string }).sourceField)] : '',
+                    Line: rightRow ? rightRow[resolveMappedSourceKey(selectedSheets.right, (fieldMapping['Line'] as { sourceField: string }).sourceField)] : '',
                     REF: refValue, // Добавляем значение REF
                     PN: pn,
                     [`Qty ${dateMapping.date}`]: qtyValue,
@@ -704,7 +891,8 @@ const App: React.FC = () => {
       const sortedRows = mergedRows.sort((a, b) => {
         const pnCompare = a.PN.localeCompare(b.PN);
         if (pnCompare !== 0) return pnCompare;
-        return new Date(a['Delivery-Expected']).getTime() - new Date(b['Delivery-Expected']).getTime();
+        return getDateSortValue(String(a['Delivery-Expected'] ?? '')) -
+          getDateSortValue(String(b['Delivery-Expected'] ?? ''));
       });
 
       // Группируем по PN и обрабатываем каждую группу
@@ -997,40 +1185,15 @@ const App: React.FC = () => {
   };
 
   const normalizeDate = (dateStr: string): string => {
-    // Canonicalize month names to 3-letter English abbreviations and remove leading zero in day
-    // Accepts variations like "Sept" vs "Sep" and extra spaces
-    const monthMap: Record<string, string> = {
-      jan: 'Jan', january: 'Jan',
-      feb: 'Feb', february: 'Feb',
-      mar: 'Mar', march: 'Mar',
-      apr: 'Apr', april: 'Apr',
-      may: 'May',
-      jun: 'Jun', june: 'Jun',
-      jul: 'Jul', july: 'Jul',
-      aug: 'Aug', august: 'Aug',
-      sep: 'Sep', sept: 'Sep', september: 'Sep',
-      oct: 'Oct', october: 'Oct',
-      nov: 'Nov', november: 'Nov',
-      dec: 'Dec', december: 'Dec',
-    };
-
-    // Expected inputs look like: "04 Sept 25" or "4 Sep 25"
-    const parts = dateStr.trim().replace(/\s+/g, ' ').split(' ');
-    if (parts.length !== 3) {
-      // Fallback: only remove leading zero if present
-      return dateStr.replace(/^0(\d)/, '$1');
-    }
-
-    let [day, mon, year] = parts;
-    // remove leading zero from day
-    day = day.replace(/^0(\d)/, '$1');
-    const monKey = mon.toLowerCase();
-    const monCanon = monthMap[monKey] ?? mon; // keep original if unknown
-    return `${day} ${monCanon} ${year}`;
+    return getPreferredDateLabel(dateStr);
   };
 
-  const getValueByDateKey = (row: TableRow, label: string): any => {
-    if (label in row) return row[label];
+  const getValueByDateKey = (row: TableRow, label: string, aliases: string[] = []): any => {
+    const labelsToTry = [label, ...aliases].filter(Boolean);
+
+    for (const directLabel of labelsToTry) {
+      if (directLabel in row) return row[directLabel];
+    }
 
     const candidates = new Set<string>();
     const norm = normalizeDate(label);
@@ -1047,7 +1210,7 @@ const App: React.FC = () => {
     const withDash = (s: string) => s.replace(/ /g, '-');
     const withDot = (s: string) => s.replace(/(\w{3}) /g, '$1. ');
 
-    [label, norm].forEach(v => {
+    [...labelsToTry, norm].forEach(v => {
       candidates.add(swapSep(v));
       candidates.add(toggleLeadingZero(v));
       candidates.add(toggleLeadingZero(swapSep(v)));
@@ -1061,6 +1224,23 @@ const App: React.FC = () => {
     for (const key of Array.from(candidates)) {
       if (key in row) return row[key];
     }
+
+    const labelFingerprints = new Set<string>();
+    [...labelsToTry, norm].forEach(candidate => {
+      buildDateFingerprints(candidate).forEach(fingerprint => labelFingerprints.add(fingerprint));
+      labelFingerprints.add(`raw:${stripSheetJsDuplicateSuffix(normalizeDateWhitespace(candidate)).toLowerCase()}`);
+    });
+
+    for (const [rowKey, rowValue] of Object.entries(row)) {
+      const rowFingerprints = buildDateFingerprints(String(rowKey));
+      rowFingerprints.add(`raw:${stripSheetJsDuplicateSuffix(normalizeDateWhitespace(String(rowKey))).toLowerCase()}`);
+
+      const hasCanonicalMatch = Array.from(labelFingerprints).some(fingerprint => rowFingerprints.has(fingerprint));
+      if (hasCanonicalMatch) {
+        return rowValue;
+      }
+    }
+
     return undefined;
   };
 
@@ -1068,7 +1248,9 @@ const App: React.FC = () => {
   const handleFieldDrop = (templateField: string, droppedField: string, sourceSheet: string) => {
     if (templateField === 'Qty-by-date') {
       const [col, value] = droppedField.split(': ');
-      const normalizedValue = normalizeDate(value);
+      const normalizedValue =
+        sheetFieldMeta[sourceSheet]?.[droppedField]?.normalizedDate ||
+        normalizeDate(value);
       
       setFieldMapping(prev => {
         const existing = (prev[templateField] as DateColumnMapping[]) || [];
@@ -1094,7 +1276,7 @@ const App: React.FC = () => {
         const nextMapping = {
           ...prev,
           [templateField]: [...existing, newMapping].sort((a, b) => 
-            new Date(a.date).getTime() - new Date(b.date).getTime()
+            getDateSortValue(a.date) - getDateSortValue(b.date)
           )
         };
         console.log('[mapping] Qty-by-date added', {
@@ -1102,6 +1284,7 @@ const App: React.FC = () => {
           droppedField,
           parsedColumn: col,
           normalizedValue,
+          sourceMeta: sheetFieldMeta[sourceSheet]?.[droppedField],
           totalQtyMappings: (nextMapping[templateField] as DateColumnMapping[]).length,
           qtyMappings: nextMapping[templateField]
         });
@@ -1410,42 +1593,76 @@ const App: React.FC = () => {
     return cell.v.toString();
   };
 
-  const getSheetHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
+  const isLikelyDateHeader = (cell: any, displayValue: string): boolean => {
+    const normalized = normalizeDateWhitespace(displayValue);
+    if (!normalized) return false;
+
+    if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i.test(normalized)) {
+      return true;
+    }
+
+    if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(normalized)) {
+      return true;
+    }
+
+    if (/^\d+(?:\.\d+)?$/.test(normalized) && typeof cell?.v === 'number' && normalized !== String(cell.v)) {
+      return true;
+    }
+
+    return typeof cell?.z === 'string' && /[dmy]/i.test(cell.z);
+  };
+
+  const getNormalizedDateFromHeaderCell = (cell: any, displayValue: string): string | undefined => {
+    if (typeof cell?.v === 'number' && cell.v > 1 && isLikelyDateHeader(cell, displayValue)) {
+      try {
+        const date = excelSerialToDate(cell.v);
+        if (!isNaN(date.getTime())) {
+          return `${date.getUTCDate()} ${MONTH_SHORT_NAMES[date.getUTCMonth()]} ${String(date.getUTCFullYear()).slice(-2)}`;
+        }
+      } catch (error) {
+        console.error('Error normalizing header date from serial:', error);
+      }
+    }
+
+    const fingerprints = Array.from(buildDateFingerprints(displayValue));
+    const hasCanonicalFingerprint = fingerprints.some(entry => entry.startsWith('canonical:'));
+    if (hasCanonicalFingerprint) {
+      return getPreferredDateLabel(displayValue);
+    }
+
+    return undefined;
+  };
+
+  const getSheetHeaderDetails = (worksheet: XLSX.WorkSheet, headerRowIndex: number): SheetFieldMeta[] => {
     const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    const headers: { col: string; value: string }[] = [];
-    
+    const headerDetails: SheetFieldMeta[] = [];
+
     for (let col = range.s.c; col <= range.e.c; col++) {
       const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
       const cell = worksheet[cellAddress];
-      
+
       if (cell && cell.v) {
-        headers.push({
-          col: XLSX.utils.encode_col(col),
-          value: getCellDisplayValue(cell)
+        const column = XLSX.utils.encode_col(col);
+        const displayValue = getCellDisplayValue(cell);
+        headerDetails.push({
+          column,
+          displayValue,
+          exactKey: displayValue,
+          normalizedDate: getNormalizedDateFromHeaderCell(cell, displayValue),
+          sourceField: `${column}: ${displayValue}`
         });
       }
     }
-    
-    return headers.map(h => `${h.col}: ${h.value}`);
+
+    return headerDetails;
+  };
+
+  const getSheetHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
+    return getSheetHeaderDetails(worksheet, headerRowIndex).map(detail => detail.sourceField);
   };
 
   const filterAndFormatHeaders = (worksheet: XLSX.WorkSheet, headerRowIndex: number): string[] => {
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    const headers: { col: string; value: string }[] = [];
-    
-    for (let col = range.s.c; col <= range.e.c; col++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-      const cell = worksheet[cellAddress];
-      
-      if (cell && cell.v) {
-        headers.push({
-          col: XLSX.utils.encode_col(col),
-          value: getCellDisplayValue(cell)
-        });
-      }
-    }
-    
-    return headers.map(h => `${h.col}: ${h.value}`);
+    return getSheetHeaderDetails(worksheet, headerRowIndex).map(detail => detail.sourceField);
   };
 
   // Добавляем useEffect для вставки стилей
