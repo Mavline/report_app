@@ -249,6 +249,31 @@ const getDateSortValue = (dateStr: string): number => {
   return Number.isNaN(fallback) ? Number.MAX_SAFE_INTEGER : fallback;
 };
 
+const getDateYear = (dateStr: string): number | null => {
+  const fingerprints = Array.from(buildDateFingerprints(dateStr));
+  const canonicalEntry = fingerprints.find(entry => entry.startsWith('canonical:'));
+  if (!canonicalEntry) {
+    return null;
+  }
+
+  const [yearStr] = canonicalEntry.slice('canonical:'.length).split('-');
+  const year = Number(yearStr);
+  return Number.isFinite(year) ? year : null;
+};
+
+const shouldDisplayHeaderForSheet = (sheetName: string, detail: SheetFieldMeta): boolean => {
+  if (sheetName !== 'Pro') {
+    return true;
+  }
+
+  if (!detail.normalizedDate) {
+    return true;
+  }
+
+  const currentYear = new Date().getFullYear();
+  return getDateYear(detail.normalizedDate) === currentYear;
+};
+
 const excelSerialToDate = (serial: number): Date => {
   const ms = Math.round((serial - 25569) * 86400 * 1000);
   const d = new Date(0);
@@ -488,7 +513,8 @@ const App: React.FC = () => {
       const worksheet = workbook.Sheets[sheetName];
       const headerRowIndex = findHeaderRow(worksheet);
       const headerDetails = getSheetHeaderDetails(worksheet, headerRowIndex);
-      const headers = headerDetails.map(detail => detail.sourceField);
+      const visibleHeaderDetails = headerDetails.filter(detail => shouldDisplayHeaderForSheet(sheetName, detail));
+      const headers = visibleHeaderDetails.map(detail => detail.sourceField);
 
       setSelectedSheets(prev => ({
         ...prev,
@@ -522,6 +548,7 @@ const App: React.FC = () => {
       console.log({
         headerRowIndex,
         headersCount: headers.length,
+        totalHeadersCount: headerDetails.length,
         headersSample: headers.slice(0, 12),
         normalizedDateSample: headerDetails
           .filter(detail => detail.normalizedDate)

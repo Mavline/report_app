@@ -21,6 +21,8 @@
 - Excel serial numbers must be converted consistently (UTC-safe) to avoid timezone drift.
 
 ## Current Date Strategy (post-2026-02-23 fixes)
+- For the `Pro` sheet UI, visible draggable date headers are filtered to the current year only; non-date fields remain visible.
+- This is a UX guardrail only and does not remove historical columns from parsed sheet data.
 - Use deterministic formatter for generated dates (`formatDateDeterministic`) instead of browser locale APIs for app-generated strings.
 - Use `excelSerialToDate` with UTC semantics.
 - Use `getCellDisplayValue(cell)`:

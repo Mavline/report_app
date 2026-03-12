@@ -74,3 +74,8 @@
 - Added sheet header metadata and cell-based normalization so `Qty-by-date` mapping now prefers canonical date derived from the actual header cell (`cell.v` / serial date) instead of only parsing the visible header text.
 - Updated merge field-key resolution to consult sheet metadata for mapped source fields before falling back to string splitting.
 - Clarification recorded later the same day: the production alarm was not false. The confusion came from validating side effects against an outdated workbook while the actual production failure had been genuine.
+
+## 2026-03-12 (Pro UI cleanup)
+- Added a UI-only filter for the `Pro` sheet field list so only current-year date columns are displayed to the operator.
+- Historical date columns from previous years remain in parsed data but are hidden from drag-and-drop selection to reduce mapping mistakes.
+- Verified local `npm run build` succeeds after the header-visibility change.

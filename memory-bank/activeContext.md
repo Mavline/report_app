@@ -9,6 +9,7 @@
 - Reduce reliance on exact string shape of date labels during matching and sorting
 
 ## What Was Done In This Session
+- Added a UI-only filter for `Pro` sheet headers so operators see only current-year date columns plus non-date fields
 - Reviewed the existing `Qty-by-date` normalization path in `src/App.tsx`
 - Identified that previous matching was still based on handcrafted string variants and exact display-label shape
 - Replaced narrow date normalization with canonical date fingerprints for both dragged labels and actual row keys
@@ -22,6 +23,7 @@
 - Verified the current fix on the correct production-relevant workbook after a temporary detour through an outdated test file
 
 ## Key Findings (Date Issue)
+- Old date columns from previous years in the `Pro` field list materially increase operator error risk during drag-and-drop mapping.
 - Previous fixes solved exact known variants but still depended on a finite list of string rewrites.
 - A single newly added date can still fail when its header formatting differs in punctuation, spacing, separator style, or year representation from previous dates.
 - The robust approach is to canonicalize both sides of the comparison and match by canonical date identity, not by precomputed textual variants alone.
@@ -29,6 +31,7 @@
 - The production issue itself was real; the mistaken part was only a later verification pass that used an outdated workbook and briefly distorted the interpretation of side effects.
 
 ## Current Code Anchors
+- `src/App.tsx` `shouldDisplayHeaderForSheet` (UI filtering of visible sheet headers)
 - `src/App.tsx` `getValueByDateKey` (robust date-key matching)
 - `src/App.tsx` `getCellDisplayValue` (prefers `cell.w`)
 - `src/App.tsx` `getSheetHeaders` / `filterAndFormatHeaders` (header display generation)
@@ -43,6 +46,6 @@
 - After switching mapped date normalization to header-cell metadata, can debug logs now be reduced or removed?
 
 ## Next Recommended Actions
-1. Commit and push the validated fix
-2. Redeploy the fresh production build to Replit/site
-3. Optionally reduce debug logging after deployment confirmation
+1. Verify in the UI that `Pro` now shows only 2026 date columns
+2. Commit and push the validated fix
+3. Redeploy the fresh production build to Replit/site

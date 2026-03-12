@@ -1,6 +1,7 @@
 # Progress
 
 ## Completed
+- 2026-03-12: Added a UI-only `Pro` header filter so only current-year date columns are shown to the operator
 - 2026-02-23: Local repo synced to latest remote (`f75ae12`) via fast-forward pull
 - 2026-02-23: Verified current code includes:
   - deterministic date formatting helpers
@@ -22,6 +23,7 @@
 - Prepare the validated fix for commit/push and deployment
 
 ## Pending
+- Confirm that the `Pro` field panel now hides pre-2026 date columns in the deployed UI
 - Confirm the deployed Replit/site is running the fresh build
 - Decide whether to add regression tests for date header matching variants
 - Potentially refactor `src/App.tsx` helper functions into testable utilities
